@@ -84,5 +84,6 @@ setup(name='examol',
         'scipy',
         'scikit-learn',
         'lxml',
+        'openmoltools',
         ],
       )

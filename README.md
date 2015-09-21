@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/choderalab/examol.svg?branch=master)](https://travis-ci.org/choderalab/examol)
+
 # examol
 
 Strategies for sampling over chemical space using alchemical multitopology methods

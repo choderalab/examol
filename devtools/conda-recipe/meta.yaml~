@@ -1,5 +1,5 @@
 package:
-  name: perses-dev
+  name: examol-dev
   version: !!str 0.0.0
 
 source:
@@ -32,7 +32,7 @@ test:
   requires:
     - nose
   imports:
-    - perses
+    - examol
 
 about:
   home: https://github.com/choderalab/perses

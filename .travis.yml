@@ -2,15 +2,15 @@ language: c
 sudo: false
 addons:
   apt:
-    sources:
-    - ubuntu-toolchain-r-test
-    packages:
-      - g++
-      - gfortran
-      - valgrind
-      - csh
-      - g++-multilib
-      - gcc-multilib
+    #sources:
+    #- ubuntu-toolchain-r-test
+    #packages:
+    #  - g++
+    #  - gfortran
+    #  - valgrind
+    #  - csh
+    #  - g++-multilib
+    #  - gcc-multilib
 
 install:
   - source devtools/travis-ci/install.sh
@@ -28,9 +28,10 @@ script:
   - conda install --yes --quiet --use-local ${PACKAGENAME}-dev
   # Install OpenEye toolkit
   - conda install --yes --quiet pip
+  - which pip # debug
   - pip install $OPENEYE_CHANNEL openeye-toolkits
   # Test the package
-  - conda install --yes --quiet nose nose-timer
+  - conda install --yes --quiet nose nose-timer openmmtools
   - cd /home; nosetests $PACKAGENAME --nocapture --verbosity=2 --with-doctest --with-timer
 
 env:

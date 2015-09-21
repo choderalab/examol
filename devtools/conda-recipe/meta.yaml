@@ -16,7 +16,6 @@ requirements:
     - openmm >=6.3
     - numpy
     - scipy
-    - openmoltools
     - scikit-learn
     - lxml
 
@@ -25,7 +24,6 @@ requirements:
     - openmm >=6.3
     - numpy
     - scipy
-    - openmoltools
     - scikit-learn
     - lxml
 

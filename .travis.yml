@@ -42,6 +42,7 @@ env:
   global:
     - PACKAGENAME="examol"
     - ORGNAME="omnia"
+    - OPENEYE_CHANNEL="-i https://pypi.anaconda.org/openeye/channel/main/simple"
     # encrypted BINSTAR_TOKEN for push of dev package to binstar
     - secure: "jLWBxAqN+oEgaBLw8l4Bj59MWqVePaHMOeDAJAAOLUhbBdS+X0WyCBrEnci0E7CENw/aCbi2vIL4Pl5uxqZvvPD3rKpWefxQB4ePIMsCz2LuOmhIvaUXFeBmjAgQmn/QgDu/5eTveAIBWtkUzR57Rccx0tjBRi3XWOMEpbV8CJQ="
 

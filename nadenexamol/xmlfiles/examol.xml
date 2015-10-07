@@ -1,0 +1,38 @@
+<ForceField>
+ <AtomTypes>
+  <Type name="corecarbon" class="CA" element="C" mass="12.01078"/>
+  <Type name="nitrogenH" class="HN" element="H" mass="1.007947"/>
+  <Type name="aliphaticC" class="C3" element="C" mass="12.01078"/>
+  <Type name="doublebondC" class="C2" element="C" mass="12.01078"/>
+  <Type name="aliphaticH" class="HC" element="H" mass="1.007947"/>
+  <Type name="aliphaticH1" class="H1" element="H" mass="1.007947"/>
+  <Type name="aromaticH" class="HA" element="H" mass="1.007947"/>
+  <Type name="hydroxylH" class="HO" element="H" mass="1.007947"/>
+  <Type name="hydroxylO" class="OH" element="O" mass="15.99943"/>
+  <Type name="aminoN" class="N2" element="N" mass="14.00672"/>
+  <Type name="nitroN" class="NO" element="N" mass="14.00672"/>
+  <Type name="nitroO" class="O" element="O" mass="15.99943"/>
+  <Type name="bromine" class="BR" element="Br" mass="79.9041"/>
+  <Type name="chlorine" class="CL" element="Cl" mass="35.4532"/>
+  <Type name="fluorine" class="F" element="F" mass="18.99840325"/>
+  <Type name="etherO" class="OS" element="O" mass="15.99943"/>
+ </AtomTypes>
+ <NonbondedForce coulomb14scale="0.833333" lj14scale="0.5">
+  <Atom type="corecarbon" charge="0" sigma="0.339966950842" epsilon="0.359824"/>
+  <Atom type="nitrogenH" charge="0" sigma="0.106907846177" epsilon="0.0656888"/>
+  <Atom type="aliphaticC" charge="0" sigma="0.339966950842" epsilon="0.4577296"/>
+  <Atom type="doublebondC" charge="0" sigma="0.339966950842" epsilon="0.359824"/>
+  <Atom type="aliphaticH" charge="0" sigma="0.264953278775" epsilon="0.0656888"/>
+  <Atom type="aliphaticH1" charge="0" sigma="0.247135304412" epsilon="0.0656888"/>
+  <Atom type="aromaticH" charge="0" sigma="0.259964245953" epsilon="0.06276"/>
+  <Atom type="hydroxylH" charge="0" sigma="0.0" epsilon="0.0"/>
+  <Atom type="hydroxylO" charge="0" sigma="0.306647338784" epsilon="0.8803136"/>
+  <Atom type="aminoN" charge="0" sigma="0.324999852378" epsilon="0.71128"/>
+  <Atom type="nitroN" charge="0" sigma="0.324999852378" epsilon="0.71128"/>
+  <Atom type="nitroO" charge="0" sigma="0.295992190115" epsilon="0.87864"/>
+  <Atom type="bromine" charge="0" sigma="0.359923082129" epsilon="1.75728"/>
+  <Atom type="chlorine" charge="0" sigma="0.347094140587" epsilon="1.10876"/>
+  <Atom type="fluorine" charge="0" sigma="0.311814551349" epsilon="0.255224"/>
+  <Atom type="etherO" charge="0" sigma="0.300001234347" epsilon="0.71128"/>
+ </NonbondedForce>
+</ForceField>

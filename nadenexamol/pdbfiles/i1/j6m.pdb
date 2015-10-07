@@ -1,0 +1,32 @@
+REMARK 888
+REMARK 888 WRITTEN BY MAESTRO (A PRODUC3 OF SCHRODINGER, LLC)
+TITLE     corem
+MODEL        1
+HETATM    1  CA1 CO1     1      -0.431  -0.599   0.224  1.00  0.00           C  
+HETATM    2  CA2 CO1     1       0.785   0.113   0.202  1.00  0.00           C  
+HETATM    3  CA3 CO1     1       2.009  -0.584   0.171  1.00  0.00           C  
+HETATM    4  CA4 CO1     1       2.018  -1.993   0.163  1.00  0.00           C  
+HETATM    5  CA5 CO1     1       0.802  -2.705   0.187  1.00  0.00           C  
+HETATM    6  CA6 CO1     1      -0.422  -2.007   0.217  1.00  0.00           C  
+HETATM    7  H1  CO1     1       0.774   1.193   0.208  1.00  0.00           H  
+HETATM    8  H2  CO1     1       2.956  -2.529   0.138  1.00  0.00           H  
+HETATM    9  H3  CO1     1      -1.357  -2.549   0.236  1.00  0.00           H  
+HETATM   10 Br1  RJ6     2      -2.084   0.341   0.261  1.00  0.00          Br  
+CONECT    1    2    6   10
+CONECT    1    2
+CONECT    2    1    7    3
+CONECT    2    1
+CONECT    3    2    4
+CONECT    3    4
+CONECT    4    3    8    5
+CONECT    4    3
+CONECT    5    4    6
+CONECT    5    6
+CONECT    6    1    5    9
+CONECT    6    5
+CONECT    7    2
+CONECT    8    4
+CONECT    9    6
+CONECT   10    1
+ENDMDL
+END   

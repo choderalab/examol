@@ -1,0 +1,44 @@
+REMARK 888
+REMARK 888 WRITTEN BY MAESTRO (A PRODUC3 OF SCHRODINGER, LLC)
+TITLE     corem
+MODEL        1
+HETATM    1  CA1 C1R4    1      -0.668  -0.633   0.234  1.00  0.00           C  
+HETATM    2  CA2 C1R4    1       0.460   0.221   0.262  1.00  0.00           C  
+HETATM    3  CA3 C1R4    1       1.761  -0.316   0.308  1.00  0.00           C  
+HETATM    4  CA4 C1R4    1       1.951  -1.711   0.324  1.00  0.00           C  
+HETATM    5  CA5 C1R4    1       0.834  -2.569   0.300  1.00  0.00           C  
+HETATM    6  CA6 C1R4    1      -0.467  -2.031   0.257  1.00  0.00           C  
+HETATM    7  H1  C1R4    1       0.348   1.293   0.236  1.00  0.00           H  
+HETATM    8  H2  C1R4    1       2.950  -2.123   0.350  1.00  0.00           H  
+HETATM    9  H3  C1R4    1      -1.313  -2.702   0.227  1.00  0.00           H  
+HETATM   10 C31  RJ4     2      -2.091  -0.094   0.136  1.00  0.00           C  
+HETATM   11 C32  RJ4     2      -2.302   1.318   0.704  1.00  0.00           C  
+HETATM   12 H13  RJ4     2      -2.395  -0.118  -0.911  1.00  0.00           H  
+HETATM   13 H11  RJ4     2      -2.758  -0.774   0.667  1.00  0.00           H  
+HETATM   14 HC1  RJ4     2      -1.734   2.073   0.161  1.00  0.00           H  
+HETATM   15 HC2  RJ4     2      -2.018   1.364   1.755  1.00  0.00           H  
+HETATM   16 HC3  RJ4     2      -3.352   1.605   0.635  1.00  0.00           H  
+CONECT    1    2    6   10
+CONECT    1    2
+CONECT    2    1    7    3
+CONECT    2    1
+CONECT    3    2    4
+CONECT    3    4
+CONECT    4    3    8    5
+CONECT    4    3
+CONECT    5    4    6
+CONECT    5    6
+CONECT    6    1    5    9
+CONECT    6    5
+CONECT    7    2
+CONECT    8    4
+CONECT    9    6
+CONECT   10    1   12   13   11
+CONECT   12   10
+CONECT   13   10
+CONECT   11   10   14   15   16
+CONECT   14   11
+CONECT   15   11
+CONECT   16   11
+ENDMDL
+END   

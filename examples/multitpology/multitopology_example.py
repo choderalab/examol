@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from perses import multitopology
+from examol import multitopology
 
 import openeye.oechem as oe
 import simtk.openmm as mm

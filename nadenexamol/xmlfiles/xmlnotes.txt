@@ -111,4 +111,48 @@ ss 32.06         2.900               Sp3 S in thio-ester and thio-ether
 sx 32.06         2.900               Special s4 in conjugated systems
 sy 32.06         2.900               Special s6 in conjugated systems
 
+
+#NOTES ON TYPE NAMES
+basecarbon    : no residue core carbon with attached hydrogen
+basecarbonsite: no residue core carbon where R-groups will attach,
+                q=basecarbon+coreH
+coreH         : Hydrogen of core, no R-groups
+coreC#1R#2    : Core carbon at site #1 away (0 is attached) and #2 R-group.
+                Note. site +-2 has combined hydrogen
+coreH#1R#2    : Core Hydrogen at site #1 away (0 is attached, so does not
+                exist)) and #2 R-group. note: site +-2 does not exist, charge
+                is combined with carbon
+hydroxylH     : Hydrogen for the hydroxyl R-group
+hydroxylO     : Oxygen for the hydroxyl R-group
+MeC           : Carbon for the methyl R-group
+MeH1          : Hydrogens on the methyl R-group. H1 type since C is attached
+                to e- withdrawing group
+MeEtC1        : Methyl (1st) carbon (core - MeC - EtC) of the ethyl R-group, 2
+                attached hydrogens
+MeEtC2        : Ethyl (2nd) carbon (core - MeC - EtC) of the ethyl R-group, 3
+                attached hydrogens
+MeEtH1        : Hydrogens on the first carbon (MeEtC1) of the Ethyl R-group.
+                H1 since its attached to an e- withdrawing group
+MeEtHC        : Hydrogens on the second carbon (MeEtC2) of the Ethyl R-group.
+                Standard aliphatic hydrogen
+aminoN        : Nitrogen of amino R-group
+nitrogenN     : Hydrogens of the amino R-group
+bromine       : Bromine R-group
+fluorine      : Fluorine R-group
+phenylC2      : Biphenyl is 2 benzene rings connected at effectivley C0.
+                However, the Core has other attachment points which still uses 
+                q= q(C2) + q(H2), where as THIS carbon (phenylC2) still has a 
+                hydrogen, so it needs its own charge.
+phenylH2      : Hydrogen on C+-2 from attached point of phenyl group, see
+                phenylC2 explination above
+nitroN        : Nitrogen of nitro- R-group
+nitroO        : Oxygen of nitro- R-group
+etherO        : Ether oyxgen on Phenyl Allyl Ether (PAE)
+PAEC1         : First carbon in PAE R group. (core-O-PAEC1-PAEC2=PAEC3).
+                Alkane
+PAEC2         : Second carbon in PAE R-group. Alkene
+PAEC3         : Third (and terminal) carbon in PAE R-group. Alkene
+PAEC1H        : Hydrogens on first PAE carbon
+PAEC2H        : Hydrogen on second PAE carbon
+PAEC3H        : Hydrogens on thrid PAE carbon
 --!>

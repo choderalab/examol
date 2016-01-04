@@ -5,9 +5,10 @@ import simtk.openmm as mm
 from simtk.openmm import app
 from copy import deepcopy
 from customexamolforces import *
+from examolhelpers import *
 
 #=== DEFINE CONSTANTS  ===
-DEBUG_MODE = False
+DEBUG_MODE = True
 #ff = app.ForceField('xmlfiles/gaff.xml', 'xmlfiles/examol.xml', 'xmlfiles/examolresidue.xml', 'tip3p.xml')
 if DEBUG_MODE:
     ff = app.ForceField('xmlfiles/gaff.xml', 'xmlfiles/examolcharge.xml', 'xmlfiles/testresidue.xml', 'tip3p.xml')
@@ -25,21 +26,6 @@ rigidWater=True
 #Ewald Tolerance 
 eET=0.0005
 #=== END CONSTANTS ===
-
-def listCoordsToNumpy(Coords):
-    #Cast the coordinates in a list format to numpy format. Some getPositions() functions allow asNumpy=True keyword, others (like the modeler) do not. This function handles thoes that do not
-    nCoords = len(Coords)
-    numpyCoords = np.zeros([nCoords,3])
-    baseunit = Coords.unit
-    for n in xrange(nCoords):
-        numpyCoords[n,:] = Coords[n].value_in_unit(baseunit)
-    return numpyCoords * baseunit
-
-def stripAndUnifyUnits(A, B):
-    #Cast both A and B to the same base unit and return them stripped along with the base
-    #Many NumPy functions loose do not preserve units, this function is mostly used for this
-    baseunit = A.unit
-    return A.value_in_unit(baseunit), B.value_in_unit(baseunit), baseunit
 
 def loadamber(basefilename, NBM=NBM, NBCO=NBCO, constraints=constraints, rigidWater=rigidWater, eET=eET):
     prmtop = app.AmberPrmtopFile(basefilename + '.prmtop')
@@ -136,117 +122,15 @@ def addRParticles(mainSystem, coreSystem, corecoords, Rsystem, Rcoords):
     ##Atoms, bonds, angles, torsions, dihedrals
     return range(Nmain, mainSystem.getNumParticles())
 
-def maxPBC(targetSystem, additionalSystem, percentNudge=1):
-    #set the periodic boundary vectors (PBV) of the target system to the max of target and additional
-    addPBV = additionalSystem.getDefaultPeriodicBoxVectors()
-    targetPBV = targetSystem.getDefaultPeriodicBoxVectors()
-    newPBV = [[1,0,0] * addPBV[0].unit, [0,1,0] * addPBV[1].unit, [0,0,1] * addPBV[2].unit]
-    for idim in range(3):
-        vecmax = np.max((addPBV[idim][idim],targetPBV[idim][idim]))
-        newPBV[idim] *= vecmax.value_in_unit(newPBV[idim].unit)*percentNudge
-    targetSystem.setDefaultPeriodicBoxVectors(*newPBV)
-    return
-
-def appendPositions(mainSet, additionalSet):
-    #Append additionalSet positions to the mainSet positions and return mainSet
-    mainSet, additionalSet, baseunit = stripAndUnifyUnits(mainSet, additionalSet)
-    mainSet = np.append(mainSet,additionalSet,axis=0)
-    return mainSet * baseunit
-
-def alignCoords(referenceCoords, toXformCoords, weights=None, pointOfOrigin=0):
-    #Code from "Python Programming for Biology: Bioinformatics and Beyond" pg 301-302
-    #Accepts a PDBFile.getPositions(asNumpy=True) argument for referenceCoords and toXformCoords
-    #Point of Origin is the atom to translate to first
-    refCoords, xformCoords, baseunit = stripAndUnifyUnits(referenceCoords, toXformCoords)
-    nalign = len(refCoords)
-    nxform = len(xformCoords)
-    #Find COGeometry of the known common structureand translate
-    refCenter = np.mean(refCoords, axis=0)
-    xformCenter = np.mean(xformCoords[:nalign], axis=0)
-    refCoords -= refCenter
-    xformCoords -= xformCenter
-    #Compute rotation
-    if weights is None:
-        weights = np.zeros(nxform)
-        weights[:nalign] = 1 
-        weights = np.ones(nalign)
-    rMat = np.dot(xformCoords[:nalign,:].T*weights, refCoords)
-    rMat1, scales, rMat2 = np.linalg.svd(rMat)
-    sign = np.linalg.det(rMat1) * np.linalg.det(rMat2)
-    if sign < 0:
-        rMat1[:,2] *= -1
-    rotation = np.dot(rMat1, rMat2)
-    #Rotate new coordinates
-    newCoords = np.dot(xformCoords, rotation)
-    #Remove COG translation
-    newCoords += refCenter
-    return newCoords * baseunit
-
-def addToMainTopology(mainTopology, addontopology, Ncore, addBonds=False):
-    #Add the atoms from the addontopology to the mainTopology
-    #Atom->Residue->Chain->Topology
-    #Chain ownership has to be passed from the addontopology to the main topology before adding the atom to the main topology
-    #Alternatley, choose the residue that the atom is attached to as the 
-    #Grab the main residue
-    atommap = []
-    for residue in mainTopology.residues():
-        mainres = residue
-        break
-    coreAtoms = [atom for atom in mainTopology.atoms()][:Ncore]
-    for atom in addontopology.atoms():
-        if int(atom.id) > Ncore:
-            atomMain = mainTopology.addAtom(atom.name, atom.element, mainres)
-            atommap.append((atom,atomMain))
-        else: #Map the core atoms
-            #Atom id's start with numbers, -1 to align with list index
-            atommap.append((atom, coreAtoms[int(atom.id)-1]))
-    natoms = len(atommap)
-    if addBonds:
-        for bond in addontopology.bonds():
-            bondAddA1, bondAddA2 = bond #Break up atom bonds
-            bondMainA1 = None
-            bondMainA2 = None
-            for i in xrange(natoms):
-                if bondAddA1 is atommap[i][0]:
-                    bondMainA1 = atommap[i][1]
-                if bondAddA2 is atommap[i][0]:
-                    bondMainA2 = atommap[i][1]
-                if bondMainA1 is not None and bondMainA2 is not None:
-                    #Stop loop if both atoms found
-                    break
-            #Only add if not in core atoms
-            if bondMainA1 not in coreAtoms or bondMainA2 not in coreAtoms:
-                mainTopology.addBond(bondMainA1, bondMainA2)
-    return
-
-def copyTopologyBtoA(topA, topB):
-    #Function to add on topology B to topology A by a copy.
-    #This is a FULL copy
-    #Map linking atoms in B to A so I can make bonds
-    atommap = []
-    for chainB in topB.chains():
-        chainA = topA.addChain()
-        for resB in chainB.residues():
-            resA = topA.addResidue(resB.name, chainA)
-            for atomB in resB.atoms():
-                atomA = topA.addAtom(atomB.name, atomB.element, resA)
-                atommap.append((atomB,atomA))
-    natoms = len(atommap)
-    for bond in topB.bonds():
-        bondBA1, bondBA2 = bond #Break up atom bonds
-        bondAA1 = None
-        bondAA2 = None
-        for i in xrange(natoms):
-            if bondBA1 is atommap[i][0]:
-                bondAA1 = atommap[i][1]
-            if bondBA2 is atommap[i][0]:
-                bondAA2 = atommap[i][1]
-            if bondAA1 is not None and bondAA2 is not None:
-                #Stop loop if both atoms found
-                break
-        topA.addBond(bondAA1, bondAA2)
-    return
-
+if DEBUG_MODE:
+    #DEBUG: 3 sites, 1 R-group per site (hydrogens)
+    Ni = 3 #Number of ith groups
+    Nj = 1 #Number of jth groups
+else:
+    Ni = 3 #Number of ith groups
+    Nj = 10 #Number of jth groups
+basisSim = basisExamol(Ni, Nj, ff)
+"""
 #Load the core
 #coreSystem = loadamber('testcore')
 coreSystem, corecoords = loadpdb('pdbfiles/core/corec')
@@ -268,13 +152,6 @@ mainNonbondedForce = getArbitraryForce(mainSystem, mm.NonbondedForce)
 mainCMRForce = getArbitraryForce(mainSystem, mm.CMMotionRemover)
 
 #Start the Rgroups
-if DEBUG_MODE:
-    #DEBUG: 3 sites, 1 R-group per site (hydrogens)
-    Ni = 3 #Number of ith groups
-    Nj = 1 #Number of jth groups
-else:
-    Ni = 3 #Number of ith groups
-    Nj = 10 #Number of jth groups
 #allocate the housing objects
 Rsystems=np.empty([Ni,Nj],dtype=np.object)
 Rcoords=np.empty([Ni,Nj],dtype=np.object)
@@ -403,25 +280,26 @@ for forceIndex in xrange(addSystem.getNumForces()):
 #=== NONBONDED AND CUSTOM NONBONDED ===
 #Now that all atoms are at least in the system, build the (custom) nonbonded forces
 buildNonbonded(mainSystem, coreSystem, Rsystems, RMainAtomNumbers, solventNumbers, Ni, Nj)
+"""
 
 #=== ATTACH INTEGRATOR, TEMPERATURE/PRESSURE COUPLING, AND MAKE CONTEXT ===
 equilibriumTemperature = 298*unit.kelvin
-integrator = mm.LangevinIntegrator(equilibriumTemperature, 1.0/unit.picosecond, 2*unit.femtosecond)
-barostat = mm.MonteCarloBarostat(1*unit.bar, 298*unit.kelvin, 1)
+#integrator = mm.LangevinIntegrator(equilibriumTemperature, 1.0/unit.picosecond, 2*unit.femtosecond)
+#barostat = mm.MonteCarloBarostat(1*unit.bar, 298*unit.kelvin, 1)
 #mainSystem.addForce(barostat)
-platform = mm.Platform.getPlatformByName('OpenCL')
+#platform = mm.Platform.getPlatformByName('OpenCL')
 
 #for ndx in xrange(mainSystem.getNumForces()):
 #    print ndx, mainSystem.getForce(ndx)
 
 #Set the positions so all particles are in the box and do no wrap oddly
-box=mainSystem.getDefaultPeriodicBoxVectors()
+box=basisSim.mainSystem.getDefaultPeriodicBoxVectors()
 box = np.array([unit.norm(vector.value_in_unit(unit.nanometer)) for vector in box])*unit.nanometer
-mincoords = np.min(mainPositions,axis=0)
-newPositions = mainPositions - mincoords
+mincoords = np.min(basisSim.mainPositions,axis=0)
+newPositions = basisSim.mainPositions - mincoords
 nudgeDistance = (box - newPositions.max(axis=0))/2
 newPositions += nudgeDistance
-mainPositions = newPositions
+basisSim.mainPositions = newPositions
 
 #Quick code to create the PDB file with all the correct CONNECT entries (visualization)
 #Atommaps from PDB file
@@ -474,10 +352,11 @@ mainPositions = newPositions
 #simulation.step(1)
 
 #Test taking a formal step to see if wrapping is handled correctly and if energies go to NaN
-context = mm.Context(mainSystem, integrator, platform)
+#context = mm.Context(basisSim.mainSystem, integrator, platform)
+context = basisSim.buildContext(provideContext=True)
 
 #=== MINIMIZE ENERGIES ===
-context.setPositions(mainPositions)
+context.setPositions(basisSim.mainPositions)
 context.setVelocitiesToTemperature(equilibriumTemperature)
 #pdb.set_trace()
 context.applyConstraints(1E-6)

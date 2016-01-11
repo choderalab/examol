@@ -8,7 +8,7 @@ from customexamolforces import *
 from examolhelpers import *
 
 #=== DEFINE CONSTANTS  ===
-DEBUG_MODE = True
+DEBUG_MODE = False
 #ff = app.ForceField('xmlfiles/gaff.xml', 'xmlfiles/examol.xml', 'xmlfiles/examolresidue.xml', 'tip3p.xml')
 if DEBUG_MODE:
     ff = app.ForceField('xmlfiles/gaff.xml', 'xmlfiles/examolcharge.xml', 'xmlfiles/testresidue.xml', 'tip3p.xml')
@@ -130,167 +130,6 @@ else:
     Ni = 3 #Number of ith groups
     Nj = 10 #Number of jth groups
 basisSim = basisExamol(Ni, Nj, ff)
-"""
-#Load the core
-#coreSystem = loadamber('testcore')
-coreSystem, corecoords = loadpdb('pdbfiles/core/corec')
-corePositions = corecoords.getPositions(asNumpy=True) #Positions of core atoms (used for alignment)
-Ncore = coreSystem.getNumParticles()
-
-
-#Start mainSystem
-mainSystem = deepcopy(coreSystem)
-'''
-Note: The mainSystem is NOT built from the combined topologies because that would add torsions and angle forces to R-groups on the same core carbon, which we wond want.
-'''
-mainTopology = deepcopy(corecoords.getTopology())
-mainPositions = deepcopy(corePositions)
-mainBondForce = getArbitraryForce(mainSystem, mm.HarmonicBondForce)
-mainAngleForce = getArbitraryForce(mainSystem, mm.HarmonicAngleForce)
-mainTorsionForce = getArbitraryForce(mainSystem, mm.PeriodicTorsionForce)
-mainNonbondedForce = getArbitraryForce(mainSystem, mm.NonbondedForce)
-mainCMRForce = getArbitraryForce(mainSystem, mm.CMMotionRemover)
-
-#Start the Rgroups
-#allocate the housing objects
-Rsystems=np.empty([Ni,Nj],dtype=np.object)
-Rcoords=np.empty([Ni,Nj],dtype=np.object)
-RMainAtomNumbers = np.empty([Ni,Nj],dtype=np.object)
-#Import the Rgroups
-for i in xrange(Ni):
-    for j in xrange(Nj):
-        #Rgroup = loadamber('testR')
-        #Rsystems[i,j], Rcoords[i,j] = loadpdb('j1mt')
-        Rsystem, Rcoord = loadpdb('pdbfiles/i%d/j%dc'%(i+1,j+1))
-        Rsystems[i,j], Rcoords[i,j] = Rsystem, Rcoord
-        #Add the Rgroup atoms to the main system
-        RMainAtomNumber = addRParticles(mainSystem, coreSystem, corecoords, Rsystem, Rcoord)
-        RMainAtomNumbers[i,j] = RMainAtomNumber
-        RPos = Rcoord.getPositions(asNumpy=True)
-        #align the new group to the core structure (to which the main was already alligned)
-        alignedPositions = alignCoords(corePositions, RPos)
-        #Append the newly aligned R-group structure to the main structure
-        mainPositions = appendPositions(mainPositions,alignedPositions[Ncore:,:])
-        #set PBC's, probably not needed here
-        maxPBC(mainSystem, Rsystem)
-        #Add topologies together, only needed to add solvent to the system
-        addToMainTopology(mainTopology, Rcoord.getTopology(), Ncore)
-        mainTopology.setPeriodicBoxVectors(mainSystem.getDefaultPeriodicBoxVectors())
-        # === Add forces (exclusions later, for now, just get in all the defaults) ===
-        for constraintIndex in range(Rsystem.getNumConstraints()):
-            atomi, atomj, r0 = Rsystem.getConstraintParameters(constraintIndex)
-            atomi, atomj = mapAtomsToMain([atomi, atomj], RMainAtomNumber, Ncore)
-            if atomi >= Ncore or atomj >= Ncore:
-                mainSystem.addConstraint(atomi, atomj, r0)
-        for forceIndex in xrange(Rsystem.getNumForces()):
-            referenceForce = Rsystem.getForce(forceIndex)
-            if isinstance(referenceForce, mm.HarmonicBondForce):
-                nRBonds = referenceForce.getNumBonds()
-                for bondIndex in xrange(nRBonds):
-                    atomi, atomj, eqdist, k = referenceForce.getBondParameters(bondIndex)
-                    #if atomi >= Ncore or atomj >= Ncore: pdb.set_trace()
-                    #Map atoms to core system
-                    atomi, atomj = mapAtomsToMain([atomi, atomj], RMainAtomNumber, Ncore)
-                    if atomi >= Ncore or atomj >= Ncore:
-                        mainBondForce.addBond(atomi, atomj, eqdist, k)
-            elif isinstance(referenceForce, mm.HarmonicAngleForce):
-                customAngleForce = addAngleForceWithCustom(mainAngleForce, referenceForce, RMainAtomNumber, i, j, Ncore)
-                customAngleForce.setForceGroup(i+1)
-                mainSystem.addForce(customAngleForce)
-            elif isinstance(referenceForce, mm.PeriodicTorsionForce):
-                customTorsionForce = addTorsionForceWithCustom(mainTorsionForce, referenceForce, RMainAtomNumber, i, j, Ncore)
-                customTorsionForce.setForceGroup(i+1)
-                mainSystem.addForce(customTorsionForce)
-            elif isinstance(referenceForce, mm.NonbondedForce):
-                #Add the particle to the main nonbonded force. Custom will come after
-                nParticles = referenceForce.getNumParticles()
-                for atomi in xrange(nParticles):
-                    q, sig, epsi = referenceForce.getParticleParameters(atomi)
-                    (atomi,) = mapAtomsToMain([atomi], RMainAtomNumber, Ncore) #If you dont trap the returned atomi, it returns a list of atomi, e.g. [0], which is > int for some reason?
-                    if atomi >= Ncore:
-                        mainNonbondedForce.addParticle(q, sig, epsi)
-                nException = referenceForce.getNumExceptions()
-                for exceptionIndex in xrange(nException):
-                    atomi, atomj, chargeProd, sig, epsi = referenceForce.getExceptionParameters(exceptionIndex)
-                    atomi, atomj = mapAtomsToMain([atomi, atomj], RMainAtomNumber, Ncore)
-                    if atomi >= Ncore or atomj >= Ncore:
-                        mainNonbondedForce.addException(atomi, atomj, chargeProd, sig, epsi)
-                    
-######## BRING IN SOLVENT ##########
-#Adjust the residue in the main topology to match the combined name so the modeler does not throw an error
-for res in mainTopology.residues():
-    res.name = 'COC'
-#Add water with the modeler
-modeller = app.Modeller(mainTopology, mainPositions)
-modeller.addSolvent(ff, padding=1.2*unit.nanometer)
-#Deelete non solvent residues. This includes the neutralizing ions which will be added since we have not handled electrostatics yet
-modeller.delete([res for res in modeller.topology.residues() if res.name == 'COC' or res.name == 'CL' or res.name=='NA'])
-copyTopologyBtoA(mainTopology, modeller.topology)
-#Get Positions
-modellerCoords = listCoordsToNumpy(modeller.getPositions())
-#Combine positions
-mainPositions = appendPositions(mainPositions, modellerCoords)
-#Combine solvent with system, this can probably can be made into function form at some point
-addSystem = ff.createSystem( 
- modeller.topology,
- nonbondedMethod=NBM,
- nonbondedCutoff=NBCO,
- constraints=constraints,
- rigidWater=rigidWater,
- ewaldErrorTolerance=eET)
-Noriginal = mainSystem.getNumParticles()
-Nnew = addSystem.getNumParticles()
-maxPBC(mainSystem, addSystem, percentNudge=1.0)
-mainTopology.setPeriodicBoxVectors(mainSystem.getDefaultPeriodicBoxVectors())
-solventNumbers = range(Noriginal,Nnew+Noriginal)
-for atomIndex in xrange(Nnew):
-    mainSystem.addParticle(addSystem.getParticleMass(atomIndex))
-for constraintIndex in range(addSystem.getNumConstraints()):
-    atomi, atomj, r0 = addSystem.getConstraintParameters(constraintIndex)
-    mainSystem.addConstraint(solventNumbers[atomi], solventNumbers[atomj], r0)
-for forceIndex in xrange(addSystem.getNumForces()):
-    referenceForce = addSystem.getForce(forceIndex)
-    if isinstance(referenceForce, mm.HarmonicBondForce):
-        nRBonds = referenceForce.getNumBonds()
-        for bondIndex in xrange(nRBonds):
-            atomi, atomj, eqdist, k = referenceForce.getBondParameters(bondIndex)
-            mainBondForce.addBond(solventNumbers[atomi], solventNumbers[atomj], eqdist, k)
-    elif isinstance(referenceForce, mm.HarmonicAngleForce):
-        nAngle = referenceForce.getNumAngles()
-        for angleIndex in xrange(nAngle):
-            atomi, atomj, atomk, angle, k = referenceForce.getAngleParameters(angleIndex)
-            mainAngleForce.addAngle(solventNumbers[atomi], solventNumbers[atomj], solventNumbers[atomk], angle, k)
-    elif isinstance(referenceForce, mm.PeriodicTorsionForce):
-        nTorsion = referenceForce.getNumTorsions()
-        for torsionIndex in xrange(nTorsion):
-            atomi, atomj, atomk, atoml, period, phase, k = referenceForce.getTorsionParameters(torsionIndex)
-            mainTorsionForce.addTorsion(solventNumbers[atomi], solventNumbers[atomj], solventNumbers[atomk], solventNumbers[atoml], period, phase, k)
-    elif isinstance(referenceForce, mm.NonbondedForce):
-        #Add the particle to the main nonbonded force. Custom will come after
-        nParticles = referenceForce.getNumParticles()
-        for atomi in xrange(nParticles):
-            q, sig, epsi = referenceForce.getParticleParameters(atomi)
-            mainNonbondedForce.addParticle(q, sig, epsi)
-        nException = referenceForce.getNumExceptions()
-        for exceptionIndex in xrange(nException):
-            atomi, atomj, chargeProd, sig, epsi = referenceForce.getExceptionParameters(exceptionIndex)
-            mainNonbondedForce.addException(solventNumbers[atomi], solventNumbers[atomj], chargeProd, sig, epsi)
-
-
-#=== NONBONDED AND CUSTOM NONBONDED ===
-#Now that all atoms are at least in the system, build the (custom) nonbonded forces
-buildNonbonded(mainSystem, coreSystem, Rsystems, RMainAtomNumbers, solventNumbers, Ni, Nj)
-"""
-
-#=== ATTACH INTEGRATOR, TEMPERATURE/PRESSURE COUPLING, AND MAKE CONTEXT ===
-equilibriumTemperature = 298*unit.kelvin
-#integrator = mm.LangevinIntegrator(equilibriumTemperature, 1.0/unit.picosecond, 2*unit.femtosecond)
-#barostat = mm.MonteCarloBarostat(1*unit.bar, 298*unit.kelvin, 1)
-#mainSystem.addForce(barostat)
-#platform = mm.Platform.getPlatformByName('OpenCL')
-
-#for ndx in xrange(mainSystem.getNumForces()):
-#    print ndx, mainSystem.getForce(ndx)
 
 #Set the positions so all particles are in the box and do no wrap oddly
 box=basisSim.mainSystem.getDefaultPeriodicBoxVectors()
@@ -358,12 +197,16 @@ context = basisSim.buildContext(provideContext=True)
 #=== MINIMIZE ENERGIES ===
 context.setPositions(basisSim.mainPositions)
 context.setVelocitiesToTemperature(equilibriumTemperature)
-#pdb.set_trace()
-context.applyConstraints(1E-6)
+#context.applyConstraints(1E-6)
 #Assign random lambda vector (testing)
+basisSim.computeBasisEnergy()
 randLam = np.random.random(Ni*Nj)
+pdb.set_trace()
+basisSim.assignLambda(randLam)
+basisSim.computeBasisEnergy()
 #randLam = np.zeros(Ni*Nj)
 #randLam[8:-1:10] = 1
+pdb.set_trace()
 randLam = np.ones(Ni*Nj) * 0.9
 assignLambda(context, randLam, Ni, Nj, skipij2=False)
 checkLam = getLambda(context, Ni, Nj)

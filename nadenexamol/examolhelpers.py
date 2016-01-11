@@ -7,7 +7,7 @@ from sys import stdout
 
 '''
 This module has the helper functions for examol, mostly system combinations
-I split this off to reduce the clutter in the main examol script.
+I split this off to reduce the clutter in the main examol scripts.
 '''
 # Cosntants #
 #Nonbonded methods
@@ -173,3 +173,85 @@ def addToMainTopology(mainTopology, addontopology, Ncore, addBonds=False):
                 mainTopology.addBond(bondMainA1, bondMainA2)
     return
 
+def basisMap(lam, coupling, atC='down', lamP=None):
+    #Basis function map. Converts a single value of lambda into the distribured value for repulsive and attractive basis functions.
+    #atC controlls how lamCap (lamC) behaves at lam=0.5. 'down' sets lamC=0, 'up' sets lamC=1
+    hasCap = False
+    #Determine if C is part of the scheme
+    for step in coupling:
+        if 'C' in step:
+            hasCap = True
+    if hasCap:
+        #How many non-cap stages does it have?
+        stages = len(coupling) - 1
+        lams = [0.0]*stages
+        #2 stage process (e.g. R C EA)
+        if stages == 2:
+            if lam < 0.5:
+                lams[0] = 2.0*lam
+                lams[1] = 0
+            elif lam >= 0.5: #Could be an else, left as elif in case I revert to the default scheme
+                lams[0] = 1
+                lams[1] = 2.0*lam - 1
+        #3 stage process (e.g. R C A E)
+        elif stages == 3:
+            if lam < (1.0/3):
+                lams[0] = 3.0*lam
+                lams[1] = 0
+                lams[2] = 0
+            elif lam < (2.0/3):
+                lams[0] = 1
+                lams[1] = 3.0*lam - 1
+                lams[2] = 0
+            elif lam >= (2.0/3):
+                lams[0] = 1
+                lams[1] = 1
+                lams[2] = 3.0*lam - 2
+    else:
+        #How many non-cap stages does it have?
+        stages = len(coupling)
+        lams = [0.0]*stages
+        #1 stage process
+        if stages == 1:
+            lams[0] = lam
+        #2 stage process (e.g. R EA)
+        if stages == 2:
+            if lam < 0.5:
+                lams[0] = 2.0*lam
+                lams[1] = 0
+            elif lam >= 0.5: #Could be an else, left as elif in case I revert to the default scheme
+                lams[0] = 1
+                lams[1] = 2.0*lam - 1
+        #3 stage process (e.g. R C A E)
+        elif stages == 3:
+            if lam < (1.0/3):
+                lams[0] = 3.0*lam
+                lams[1] = 0
+                lams[2] = 0
+            elif lam < (2.0/3):
+                lams[0] = 1
+                lams[1] = 3.0*lam - 1
+                lams[2] = 0
+            elif lam >= (2.0/3):
+                lams[0] = 1
+                lams[1] = 1
+    returns = {}
+    lamCounter = 0 
+    for i in xrange(len(coupling)):
+        stage = coupling[i]
+        if 'C' in stage:
+            if lam == 1.0/stages:
+                if atC == 'down':
+                    lamC = 0.0
+                elif atC == 'up':
+                    lamC = 1.0
+            elif lam > 1.0/stages:
+                lamC = 1.0
+            else:
+                lamC = 0.0
+            returns['C'] = lamC
+        else:
+            for basis in stage:
+                returns[basis] = lams[lamCounter]
+            lamCounter += 1
+    return returns

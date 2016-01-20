@@ -7,11 +7,13 @@ from copy import deepcopy
 from sys import stdout
 import itertools
 from examolhelpers import *
-
+from examolintegrators import *
 '''
 This module houses all the custom force functions used by the main exmaol script.
 I split this off to reduce the clutter in the main examol script.
 '''
+
+
 
 def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
     '''
@@ -224,6 +226,7 @@ class basisSwitches(object):
 
     def _linear(self, lam):
         return lam
+    
     def _nadenOptimal(self, lam):
         repA = 1.61995584
         repB = -0.8889962
@@ -625,11 +628,18 @@ class basisExamol(object):
             bits[-flag-1] = '1'
         return int(''.join(bits), 2)
 
+    def buildThermostat(self):
+        self.thermostat = mm.AndersenThermostat(self.temperature, 1.0/unit.picosecond)
+        self.mainSystem.addForce(self.thermostat)
+
     def buildIntegrator(self):
         if self.context is not None:
             print "Cannot make new integrator with existing context!"
         else:
-            self.integrator = mm.LangevinIntegrator(self.temperature, 1.0/unit.picosecond, self.timestep)
+            #self.integrator = mm.LangevinIntegrator(self.temperature, 1.0/unit.picosecond, self.timestep)
+            self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep)
+            self.integrator = self.integratorEngine.integrator
+            self.buildThermostat()
         return
 
     def buildBarostat(self):
@@ -659,7 +669,21 @@ class basisExamol(object):
             self.buildIntegrator()
         if self.platform is None:
             self.buildPlatform()
-        self.context = mm.Context(self.mainSystem, self.integrator, self.platform)
+        if self.protocol['skipContextUnits']:
+            #Overload the self.context.setParameter function to skip the try stripUnits arg at the start
+            from simtk.openmm import _openmm as _mm
+            class skipUnitsInParameterContext(mm.Context):
+                def setParameter(self, *args):
+                    return _mm.Context_setParameter(self, *args)
+            self.context = skipUnitsInParameterContext(self.mainSystem, self.integrator, self.platform)
+        else:
+            self.context = mm.Context(self.mainSystem, self.integrator, self.platform)
+        #Ensure initial values are set right
+        self.assignLambda(self.getLambda())
+        try: 
+            self.integratorEnginge.initilizeTheta(self.currentLambda)
+        except:
+            pass
         if provideContext:
             return self.context
         return
@@ -677,6 +701,23 @@ class basisExamol(object):
             lams['B'] = lam
             lams.update(basisMap(lams['B'],protocol))
         return lams
+    
+    def assignSingleLambda(self, i, j, lamValue, i2=None, j2=None):
+        '''
+        Function which assigns only 1 lambda (and its linked parameters) for speed
+        if i2 and j2 are passed in, then it assigns a cross term (and not i,j + i2,j2)
+        NOTE: This functions differently than assignLambda since a single value is passed in
+        '''
+        if not isinstance(lamVector, np.ndaray):
+            lamValue = np.array(lamValue).reshape([1])
+        if isinstance(lamVector.flat[0],dict):
+            method = 'directDict'
+        elif (lamVector.dtype.fields is not None):
+            method = 'structuredNumpyArray'
+        else:
+            method = 'bondOnly'
+        return
+        
 
     def assignLambda(self, lamVector):
         '''
@@ -696,7 +737,7 @@ class basisExamol(object):
             method = 'structuredNumpyArray'
         else:
             method = 'bondOnly'
-        lamVector = lamVector.reshape(self.Ni,self.Nj)
+        lamVector = lamVector.reshape((self.Ni,self.Nj))
         #Determine which basis need computed for interactions
         standardBasis = []
         for stage in self.protocol['standardBasisCoupling']:
@@ -751,7 +792,63 @@ class basisExamol(object):
                     break
         return uniqueBasis
 
-    def computeBasisEnergy(self, debug=False):
+    def computeArbitraryAlchemicalEnergy(self, lamVector=None, basis=None, derivative=False, provideHValues=False):
+        '''
+        Compute the potential energy at an arbitary alchemical state defined by 'lamVector'. Assumes current lambda if not passed in.
+        If the basis functions are already known, then they are fed in with 'basis', otherwise, they are computed from the computeBasisEnergy block
+
+        lamVector : list of floats len(lamVector)= Ni*Nj OR ndarray of floats of (lamVector.shape = Ni*Nj or lamVector.shape = [Ni,Nj])
+        basis : dict with entries returned from computeBasisEnergy
+        derivative : bool, if True, returnes dU/dL instead of just U
+        provideHValues: bool, if true, the 'standardHValues' and the 'crossHValues' will be returned as keys in the potential energy
+        '''
+
+        if lamVector is None:
+            lamVector = self.getLambda()
+        else:
+            if isinstance(lamVector, list):
+                lamVector = np.array(lamVector)
+            lamVector = lamVector.reshape((self.Ni,self.Nj))
+        if basis is None:
+            basis = self.computeBasisEnergy()
+        standardBasis = basis['standardBasis']
+        crossBasis = basis['crossBasis']
+        unaffectedPotential = basis['unaffectedPotential']
+        if derivative:
+            raise Exception("Still working on it")
+        #Compute alchemical switches
+        standardHValues = np.zeros(standardBasis.shape)
+        crossHValues = np.zeros(crossBasis.shape)
+        for i in xrange(self.Ni):
+            for j in xrange(self.Nj):
+                lams = basisMap(lamVector[i,j], self.protocol['standardBasisCoupling'])
+                standardHValues[i,j,-1] = self.standardH.B(lamVector[i,j])
+                for uniqueSetCount in xrange(self.standardNumBasis):
+                    basisSet = self._flatStandardUniqueBasis[uniqueSetCount]
+                    arbitraryBasis = basisSet[0]
+                    arbitraryLam = lams[arbitraryBasis]
+                    standardHValues[i,j,uniqueSetCount] = getattr(self.standardH, arbitraryBasis)(arbitraryLam)
+                for i2 in xrange(i+1,self.Ni): #no need to loop backwards, otherwise will double up on energy calculations
+                    for j2 in xrange(self.Nj): #All j affected, just not same i
+                        lamsij = basisMap(lamVector[i,j], self.protocol['crossBasisCoupling'])
+                        lamsij2 = basisMap(lamVector[i2,j2], self.protocol['crossBasisCoupling'])
+                        for uniqueSetCount2 in xrange(self.crossNumBasis):
+                            basisSet2 = self._flatCrossUniqueBasis[uniqueSetCount2]
+                            arbitraryBasis2 = basisSet2[0]
+                            arbitraryLamij = lamsij[arbitraryBasis2]
+                            arbitraryLamij2 = lamsij2[arbitraryBasis2]
+                            arbitraryCrossLam = arbitraryLamij*arbitraryLamij2
+                            crossHValues[i,j,i2,j2,uniqueSetCount2] = getattr(self.crossH, arbitraryBasis2)(arbitraryCrossLam)
+        returns = {}
+        if provideHValues:
+            returns['standardHValues'] = standardHValues
+            returns['crossHValues'] = crossHValues
+        basisPotential = np.sum(standardBasis * standardHValues) + np.sum(crossBasis * crossHValues)
+        basisPotential += unaffectedPotential
+        returns['potential'] = basisPotential
+        return returns
+
+    def computeBasisEnergy(self):
         '''
         Compute all the basis function energies given a context, sites, and molecules per site.
     
@@ -764,20 +861,18 @@ class basisExamol(object):
             raise
         #Initilize energies
         # E, C, R, A, B
-        #assign indices for more less hard code repition later and allows 
-        basisIndex = {'E':0, 'C':1, 'R':2, 'A':3, 'B':4}
+        standardParameter = 'lam{i:s}x{j:s}{b:s}'
+        crossParameter = 'lam{i:s}x{j:s}x{i2:s}x{j2:s}{b:s}'
         #Determine the number of basis functions per stage
         rijSolvBasis = np.zeros([self.Ni,self.Nj,self.standardNumBasis + 1]) * unit.kilojoules_per_mole #Add 1 since the bonded terms are on here
         rijRij2Basis = np.zeros([self.Ni,self.Nj,self.Ni,self.Nj,self.crossNumBasis]) * unit.kilojoules_per_mole
         #Create blank structured numpy array (behaves similar to an array of dictionary objects)
         blankLamVector = np.zeros([self.Ni, self.Nj], dtype={'names':['E','C','R','A','B',], 'formats':['f','f','f','f','f']})
-        basisLambdaValues = np.zeros(rijSolvBasis.shape)
-        basisLambda2Values = np.zeros(rijRij2Basis.shape)
-        basisHValues = np.zeros(rijSolvBasis.shape)
-        basisH2Values = np.zeros(rijRij2Basis.shape)
         #Get current total potential and state
         currentLambda = self.getLambda()
         currentPotential = self.getPotential()
+        #Start at fully decoupled potential
+        self.assignLambda(blankLamVector)
         #Cycle through the lambda
         forceGroupI = 1 #starting force group for ith->solvent
         forceGroupII = self.Ni+1 #Starting force group for i->i interaction
@@ -786,57 +881,42 @@ class basisExamol(object):
                 forceGroupII = (self.Ni+1)+(i*self.Ni - (i**2+i)/2) #starting Force group for i->i interactions
                 #rijIndex = i*Ni + j
                 groups = self.groupFlag(forceGroupI)
-                #Store the current lambda values
-                lams = basisMap(currentLambda[i,j], self.protocol['standardBasisCoupling'])
-                lams['B'] = currentLambda[i,j]
-                basisLambdaValues[i,j,-1] = lams['B']
-                basisHValues[i,j,-1] = self.standardH.B(lams['B'])
                 #Compute the bonded terms
-                passLam = blankLamVector.copy()
-                passLam[i,j]['B'] = 1
-                self.assignLambda(passLam)
+                self.context.setParameter(standardParameter.format(i=str(i), j=str(j), b='B'), 1)
                 rijSolvBasis[i,j,-1] = self.getPotential(groups=groups)
+                self.context.setParameter(standardParameter.format(i=str(i), j=str(j), b='B'), 0)
                 for uniqueSetCount in xrange(self.standardNumBasis):
                     #Grab the unique basis functions
                     basisSet = self._flatStandardUniqueBasis[uniqueSetCount]
-                    passLam = blankLamVector.copy()
                     #Set the switch, we only need to grab one of the lambdas since they are the same function
-                    arbitraryBasis = basisSet[0]
-                    arbitraryLam = lams[arbitraryBasis]
-                    basisLambdaValues[i,j,uniqueSetCount] = arbitraryLam
-                    basisHValues[i,j,uniqueSetCount] = getattr(self.standardH, arbitraryBasis)(arbitraryLam)
                     for basis in basisSet:
-                        passLam[i,j][basis] = 1
-                    self.assignLambda(passLam)
+                        self.context.setParameter(standardParameter.format(i=str(i), j=str(j), b=basis), 1)
                     rijSolvBasis[i,j,uniqueSetCount] = self.getPotential(groups=groups)
+                    for basis in basisSet:
+                        self.context.setParameter(standardParameter.format(i=str(i), j=str(j), b=basis), 0)
                 #Loop through i2/j2 interactions
                 for i2 in xrange(i+1,self.Ni): #no need to loop backwards, otherwise will double up on energy calculations
                     for j2 in xrange(self.Nj): #All j affected, just not same i
                         groups = self.groupFlag(forceGroupII)
-                        lamsij = basisMap(currentLambda[i,j], self.protocol['crossBasisCoupling'])
-                        lamsij2 = basisMap(currentLambda[i2,j2], self.protocol['crossBasisCoupling'])
                         for uniqueSetCount2 in xrange(self.crossNumBasis):
                             basisSet2 = self._flatCrossUniqueBasis[uniqueSetCount2]
-                            arbitraryBasis2 = basisSet2[0]
-                            arbitraryLamij = lamsij[arbitraryBasis2]
-                            arbitraryLamij2 = lamsij2[arbitraryBasis2]
-                            arbitraryCrossLam = arbitraryLamij*arbitraryLamij2
-                            basisLambda2Values[i,j,i2,j2,uniqueSetCount2] = arbitraryCrossLam
-                            basisH2Values[i,j,i2,j2,uniqueSetCount2] = getattr(self.crossH, arbitraryBasis2)(arbitraryCrossLam)
-                            passLam2 = blankLamVector.copy()
                             for basis in basisSet2:
-                                passLam2[i,j][basis] = 1
-                                passLam2[i2,j2][basis] = 1
-                            self.assignLambda(passLam2)
+                                self.context.setParameter(crossParameter.format(i=str(i), j=str(j), i2=str(i2), j2=str(j2), b=basis), 1)
                             rijRij2Basis[i,j,i2,j2,uniqueSetCount2] = self.getPotential(groups=groups)
+                            for basis in basisSet2:
+                                self.context.setParameter(crossParameter.format(i=str(i), j=str(j), i2=str(i2), j2=str(j2), b=basis), 0)
                     forceGroupII += 1
             forceGroupI += 1
         #Lastly, unaffected energies
         groups = self.groupFlag(0)
         unaffectedPotential = self.getPotential(groups=groups)
+        returns = {}
+        returns['standardBasis'] = rijSolvBasis
+        returns['crossBasis'] = rijRij2Basis
+        returns['unaffectedPotential'] = unaffectedPotential
+
         #Ensure total energy = bais function energy. This is a debug sanity check
-        basisPotential = np.sum(rijSolvBasis * basisHValues) + np.sum(rijRij2Basis * basisH2Values)
-        basisPotential += unaffectedPotential
+        basisPotential = self.computeArbitraryAlchemicalEnergy(lamVector=currentLambda, basis=returns)['potential']
         tolerance = 10**-3 #kJ/mol
         err = np.abs((currentPotential - basisPotential)/unit.kilojoules_per_mole)
         if err >= tolerance:
@@ -847,12 +927,6 @@ class basisExamol(object):
         #Reset the state
         self.assignLambda(currentLambda)
         #Bundle energies
-        returns = {}
-        returns['standardBasis'] = rijSolvBasis
-        returns['crossBasis'] = rijRij2Basis
-        returns['standardSwitches'] = basisHValues
-        returns['crossSwitches'] = basisH2Values
-        returns['unaffected'] = unaffectedPotential
         return returns
 
     def _setProtocol(self, protocol):
@@ -866,6 +940,7 @@ class basisExamol(object):
         defaultProtocols['timestep'] = 2*unit.femtosecond
         defaultProtocols['standardSwitches'] = None
         defaultProtocols['crossSwitches'] = {'R':'linear'}
+        defaultProtocols['skipContextUnits'] = True
         if protocol is None:
             self.protocol = defaultProtocols
         else:

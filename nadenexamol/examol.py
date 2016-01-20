@@ -4,8 +4,9 @@ import simtk.unit as unit
 import simtk.openmm as mm
 from simtk.openmm import app
 from copy import deepcopy
-from customexamolforces import *
+from examolclasses import *
 from examolhelpers import *
+import cProfile, pstats, StringIO
 
 #=== DEFINE CONSTANTS  ===
 DEBUG_MODE = False
@@ -196,9 +197,22 @@ context = basisSim.buildContext(provideContext=True)
 
 #=== MINIMIZE ENERGIES ===
 context.setPositions(basisSim.mainPositions)
-context.setVelocitiesToTemperature(equilibriumTemperature)
+context.setVelocitiesToTemperature(basisSim.temperature)
 #context.applyConstraints(1E-6)
 #Assign random lambda vector (testing)
+profile = True
+if profile:
+    pr = cProfile.Profile()
+    pr.enable()
+    basisSim.computeBasisEnergy()
+    pr.disable()
+    s = StringIO.StringIO()
+    sortby = 'cumulative'
+    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    ps.print_stats()
+    print s.getvalue()
+pdb.set_trace()
+#cProfile.run(basisSim.computeBasisEnergy())
 basisSim.computeBasisEnergy()
 randLam = np.random.random(Ni*Nj)
 pdb.set_trace()

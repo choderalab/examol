@@ -200,6 +200,8 @@ context.setPositions(basisSim.mainPositions)
 context.setVelocitiesToTemperature(basisSim.temperature)
 #context.applyConstraints(1E-6)
 #Assign random lambda vector (testing)
+#Pull the initial energy to allocte the Context__getStateAsLists call for "fair" testing, still looking into why the initial call is slow
+initialU = basisSim.computeBasisEnergy()
 profile = True
 if profile:
     pr = cProfile.Profile()

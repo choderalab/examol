@@ -8,6 +8,8 @@ from sys import stdout
 import itertools
 from examolhelpers import *
 from examolintegrators import *
+import cProfile
+import pstats
 '''
 This module houses all the custom force functions used by the main exmaol script.
 I split this off to reduce the clutter in the main examol script.
@@ -929,6 +931,51 @@ class basisExamol(object):
         #Bundle energies
         return returns
 
+    def _countTotalBasisFunctions(self):
+        #Utility function to count up the total number of basis given the current protocols
+        basisCount = 0
+        for i in xrange(self.Ni):
+            for j in xrange(self.Nj):
+                #Count the bonded basis
+                basisCount += 1
+                for uniqueSetCount in xrange(self.standardNumBasis):
+                    #Add in the unique stages
+                    basisCount += 1
+                #Loop through i2/j2 interactions
+                for i2 in xrange(i+1,self.Ni): 
+                    for j2 in xrange(self.Nj): 
+                        for uniqueSetCount2 in xrange(self.crossNumBasis):
+                            #Add in the cross interactions unique counts
+                            basisCount += 1
+        self.totalBasis = basisCount
+    
+    def unravelBasis(self, array):
+        #Helper function to unravel a flat, non-zero array into a dictionary of arrays format of type {'standard':[Ni,Nj,standardNumBasis+1], 'cross':[Ni,Nj,Ni,Nj,crossNumBasis]}
+        raise Exception("Not ready yet")
+        basisCount = 0
+        #Strip units
+        hasUnit = False
+        if isinstance(array, unit.Quantity):
+            hasUnit = True
+            arrUnit = array.unit
+            array /= arrUnit
+        standard = np.zeros([self.Ni,self.Nj,self.standardNumBasis+1])
+        cross = np.zeros([self.Ni,self.Nj,self.Ni,self.Nj,self.standardCross])
+        for i in xrange(self.Ni):
+            for j in xrange(self.Nj):
+                standard[i,j,-1] = NOTREADY 
+                basisCount += 1
+                for uniqueSetCount in xrange(self.standardNumBasis):
+                    #Add in the unique stages
+                    basisCount += 1
+                #Loop through i2/j2 interactions
+                for i2 in xrange(i+1,self.Ni): 
+                    for j2 in xrange(self.Nj): 
+                        for uniqueSetCount2 in xrange(self.crossNumBasis):
+                            #Add in the cross interactions unique counts
+                            basisCount += 1
+        pass
+
     def _setProtocol(self, protocol):
         #Set defaults:
         defaultProtocols = {}
@@ -978,6 +1025,8 @@ class basisExamol(object):
         #Flatten the unique lists for computing energies later
         self._flatStandardUniqueBasis = list(itertools.chain.from_iterable(self.standardUniqueBasis))
         self._flatCrossUniqueBasis = list(itertools.chain.from_iterable(self.crossUniqueBasis))
+        #Count total unique basis
+        self._countTotalBasisFunctions()
         #Set some more easily accessed common variables
         self.temperature = self.protocol['temperature']
         self.pressure = self.protocol['pressure']

@@ -9,7 +9,7 @@ from examolhelpers import *
 import cProfile, pstats, StringIO
 
 #=== DEFINE CONSTANTS  ===
-DEBUG_MODE = False
+DEBUG_MODE = True
 #ff = app.ForceField('xmlfiles/gaff.xml', 'xmlfiles/examol.xml', 'xmlfiles/examolresidue.xml', 'tip3p.xml')
 if DEBUG_MODE:
     ff = app.ForceField('xmlfiles/gaff.xml', 'xmlfiles/examolcharge.xml', 'xmlfiles/testresidue.xml', 'tip3p.xml')
@@ -203,6 +203,7 @@ context.setVelocitiesToTemperature(basisSim.temperature)
 #Pull the initial energy to allocte the Context__getStateAsLists call for "fair" testing, still looking into why the initial call is slow
 initialU = basisSim.computeBasisEnergy()
 profile = True
+pdb.set_trace()
 if profile:
     pr = cProfile.Profile()
     pr.enable()

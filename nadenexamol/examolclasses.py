@@ -25,6 +25,8 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
 
     Energy expression kept here to reduce clutter elsewhere.
     All of the "If" statements are so the order of the global parameters for setting defaults is preserved
+    
+    CURRENTLY HARD CODED: R C EA
     '''
     ONE_4PI_EPS0 = 138.935456 #From OpenMM's OpenCL kernel
     if i2 is None and j2 is None:
@@ -33,15 +35,18 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         lamC = 'lam{0:s}x{1:s}C'.format(str(i),str(j))
         lamA = 'lam{0:s}x{1:s}A'.format(str(i),str(j))
         lamR = 'lam{0:s}x{1:s}R'.format(str(i),str(j))
+        lamB = 'lam{0:s}x{1:s}B'.format(str(i),str(j))
     else:
         lamE = 'lam{0:s}x{1:s}x{2:s}x{3:s}E'.format(str(i),str(j),str(i2),str(j2))
         lamP = 'lam{0:s}x{1:s}x{2:s}x{3:s}P'.format(str(i),str(j),str(i2),str(j2))
         lamC = 'lam{0:s}x{1:s}x{2:s}x{3:s}C'.format(str(i),str(j),str(i2),str(j2))
         lamA = 'lam{0:s}x{1:s}x{2:s}x{3:s}A'.format(str(i),str(j),str(i2),str(j2))
         lamR = 'lam{0:s}x{1:s}x{2:s}x{3:s}R'.format(str(i),str(j),str(i2),str(j2))
+        lamB = 'lam{0:s}x{1:s}B*lam{2:s}x{3:s}B'.format(str(i),str(j),str(i2),str(j2))
    
     #Start energy Expression
     energy_expression = ""
+    switchRules = ''
     if LJ and Electro:
         energy_expression +=  "epsilon*(RepSwitchCappedBasis + AttSwitchBasis + CappingSwitchBasis) + electrostatics;"
     elif LJ:
@@ -54,14 +59,15 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
 
     if LJ:
         ###NOTE: the epsilon has been extracted but the 4 is still embeded!###########
-        energy_expression += "CappingSwitchBasis = {0:s}*CappingBasis;".format(lamC)
+        #energy_expression += "CappingSwitchBasis = {0:s}*CappingBasis;".format(lamC)
+        energy_expression += "CappingSwitchBasis = capSwitch*CappingBasis;"
         energy_expression += "CappingBasis = repUncap - RepCappedBasis;"
         energy_expression += "RepSwitchCappedBasis = repSwitch*RepCappedBasis;"
         energy_expression += "RepCappedBasis = Rnear + Rtrans + Rfar;"
         energy_expression += "AttSwitchBasis = attSwitch*attBasis;"
-        energy_expression += "repSwitch = pa*({0:s}^4) + pb*({0:s}^3) + pc*({0:s}^2) + (1-pa-pb-pc)*{0:s};".format(lamR) #Repulsive Term
-        energy_expression += "pa = %f; pb = %f; pc = %f;" % (1.61995584, -0.8889962, 0.02552684) #Values found from optimization routine
-        energy_expression += "attSwitch = {0:s};".format(lamA)
+        #energy_expression += "repSwitch = pa*({0:s}^4) + pb*({0:s}^3) + pc*({0:s}^2) + (1-pa-pb-pc)*{0:s};".format(lamR) #Repulsive Term
+        #energy_expression += "pa = %f; pb = %f; pc = %f;" % (1.61995584, -0.8889962, 0.02552684) #Values found from optimization routine
+        #energy_expression += "attSwitch = {0:s};".format(lamA)
         energy_expression += "attBasis = Anear+Afar;"
         energy_expression += "Anear = -1 * step(1-r/((2^(1.0/6.0))*sigma));" #WCA attrcative plateau near r=0
         energy_expression += "Afar = LJ*(1-step(1-r/((2^(1.0/6.0))*sigma)));" #WCA attractive comp far away.
@@ -88,6 +94,34 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         energy_expression += "cap1 = %f; cap2 = %f;" % (0.8, 0.9)
         energy_expression += "epsilon = sqrt(epsilon1*epsilon2);" # mixing rule for epsilon
         energy_expression += "sigma = 0.5*(sigma1 + sigma2);" # mixing rule for sigma
+        #Write the rules for the individual switches
+        energy_expression += switchRules
+        switchRules += "repSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*repDeriv) + ((1-derivMode)*repBase);".format(i=i,j=j)
+        switchRules += "repBase = pa*(repVar^4) + pb*(repVar^3) + pc*(repVar^2) + (1-pa-pb-pc)*repVar;"
+        #Derivative dU/dLB = pU/pLR * pLR/pLB
+        switchRules += "repDeriv = (4*pa*(repVar^3) + 3*pb*(repVar^2) + 2*pc*(repVar) + (1-pa-pb-pc))*RDerivCheck;"
+        #                              pLR/pLB     Should it be 0 or not
+        switchRules += "RDerivCheck = (nStage-1)*Rcheck1*Rcheck2;"
+        switchRules += "repVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*lamMapR);".format(lamR)
+        switchRules += "pa = %f; pb = %f; pc = %f;" % (1.61995584, -0.8889962, 0.02552684) #Values found from optimization routine
+        switchRules += "lamMapR = min(1,Rscale*max(Rcheck1*Rcheck2,Rcheck3));"
+        switchRules += "Rcheck1 = step(Rscale); Rcheck2 = step(1-Rscale); Rcheck3 = step(Rscale-1);"
+        switchRules += "Rscale = ((nStage-1)*{lam:s}-{off:d});".format(lam=lamB,off=0)
+        #Attractive
+        switchRules += "attSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*attDeriv) + ((1-derivMode)*attBase);".format(i=i,j=j)
+        switchRules += "attBase = attVar;"
+        switchRules += "attDeriv = 1*ADerivCheck;"
+        switchRules += "ADerivCheck = (nStage-1)*Acheck1*Acheck2;"
+        switchRules += "attVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*lamMapA);".format(lamA)
+        switchRules += "lamMapA = min(1,Ascale*max(Acheck1*Acheck2,Acheck3));"
+        switchRules += "Acheck1 = step(Ascale); Acheck2 = step(1-Ascale); Acheck3 = step(Ascale-1);"
+        switchRules += "Ascale = ((nStage-1)*{lam:s}-{off:d});".format(lam=lamB,off=1)
+        #Cap rules
+        switchRules += "capSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*capDeriv) + ((1-derivMode)*capBase);".format(i=i,j=j)
+        switchRules += "capBase = capVar;"
+        switchRules += "capDeriv = 1*CDerivCheck;"
+        switchRules += "CDerivCheck = (nStage-1)*delta({lam:s} - 1.0/(nStage-1));".format(lam=lamB)
+        switchRules += "capVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*delta({1:s} - 1.0/(nStage-1) + 0.000001));".format(lamC,lamB)
     if Electro:
         #=== Electrostatics ===
         # This block commented out until I figure out how to do long range PME without calling updateParametersInContext(), Switched to reaction field below
@@ -100,11 +134,22 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         #energy_expression += "switchPME = {0:s};".format(lamP)
         #energy_expression += "switchE = {0:s};".format(lamE)
 
-        energy_expression += "electrostatics = {0:s}*charge1*charge2*{1:f}*reaction_field;".format(lamE, ONE_4PI_EPS0)
+        #energy_expression += "electrostatics = {0:s}*charge1*charge2*{1:f}*reaction_field;".format(lamE, ONE_4PI_EPS0)
+        energy_expression += "electrostatics = elecSwitch*charge1*charge2*{0:f}*reaction_field;".format(ONE_4PI_EPS0)
         energy_expression += "reaction_field = (1/r) + krf*r^2 - crf;"
         energy_expression += "krf = (1/(rcut^3)) * ((dielectric-1)/(2*dielectric+1));"
         energy_expression += "crf = (1/rcut) * ((3*dielectric)/(2*dielectric+1));"
-
+        switchRules += "elecSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*elecDeriv) + ((1-derivMode)*elecBase);".format(i=i,j=j)
+        switchRules += "elecBase = elecVar;"
+        switchRules += "elecDeriv = 1*EDerivCheck;"
+        switchRules += "EDerivCheck = (nStage-1)*Echeck1*Echeck2;"
+        switchRules += "elecVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*lamMapE);".format(lamE)
+        switchRules += "lamMapE = min(1,Escale*max(Echeck1*Echeck2,Echeck3));"
+        switchRules += "Echeck1 = step(Escale); Echeck2 = step(1-Escale); Echeck3 = step(Escale-1);"
+        switchRules += "Escale = ((nStage-1)*{lam:s}-{off:d});".format(lam=lamB,off=1)
+    
+    switchRules += "nStage = {0:d};".format(3)
+    energy_expression += switchRules
     custom_nonbonded_force = mm.CustomNonbondedForce(energy_expression)
     #All the global/PerParticle parameters dont matter, they just will ocupy a bit extra memory
     if Electro:
@@ -119,6 +164,12 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         custom_nonbonded_force.addGlobalParameter("{0:s}".format(lamC), 1)
         custom_nonbonded_force.addGlobalParameter("{0:s}".format(lamA), 1)
         custom_nonbonded_force.addGlobalParameter("{0:s}".format(lamR), 1)
+    custom_nonbonded_force.addGlobalParameter("lam{0:d}x{1:d}B".format(i,j), 1)
+    if i2 is not None and j2 is not None:
+        custom_nonbonded_force.addGlobalParameter("lam{0:d}x{1:d}B".format(i2,j2), 1)
+    custom_nonbonded_force.addGlobalParameter("derivMode", 0)
+    custom_nonbonded_force.addGlobalParameter("thisDeriv{i:d}x{j:d}".format(i=i,j=j), 0)
+    custom_nonbonded_force.addGlobalParameter("singleSwitchMode", 0)
     
     return custom_nonbonded_force
 
@@ -132,14 +183,17 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         lamP = 'lam{0:s}x{1:s}P'.format(str(i),str(j))
         lamA = 'lam{0:s}x{1:s}A'.format(str(i),str(j))
         lamR = 'lam{0:s}x{1:s}R'.format(str(i),str(j))
+        lamB = 'lam{0:s}x{1:s}B'.format(str(i),str(j))
     else:
         lamE = 'lam{0:s}x{1:s}x{2:s}x{3:s}E'.format(str(i),str(j),str(i2),str(j2))
         lamP = 'lam{0:s}x{1:s}x{2:s}x{3:s}P'.format(str(i),str(j),str(i2),str(j2))
         lamA = 'lam{0:s}x{1:s}x{2:s}x{3:s}A'.format(str(i),str(j),str(i2),str(j2))
         lamR = 'lam{0:s}x{1:s}x{2:s}x{3:s}R'.format(str(i),str(j),str(i2),str(j2))
+        lamB = 'lam{0:s}x{1:s}B*lam{2:s}x{3:s}B'.format(str(i),str(j),str(i2),str(j2))
    
     #Start energy Expression
     energy_expression = ""
+    switchRules = ""
     if LJ and Electro:
         energy_expression +=  "epsilon*(RepSwitchBasis + AttSwitchBasis) + electrostatics;"
     elif LJ:
@@ -154,17 +208,26 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         energy_expression += "RepSwitchBasis = repSwitch*RepBasis;"
         energy_expression += "RepBasis = Rnear + Rfar;"
         energy_expression += "AttSwitchBasis = attSwitch*attBasis;"
-        energy_expression += "repSwitch = {0:s};".format(lamR) #Repulsive Term
-        energy_expression += "attSwitch = {0:s};".format(lamA)
+        #energy_expression += "repSwitch = {0:s};".format(lamR) #Repulsive Term
+        #energy_expression += "attSwitch = {0:s};".format(lamA)
         energy_expression += "attBasis = Anear+Afar;"
         energy_expression += "Anear = -1 * step(1-r/((2^(1.0/6.0))*sigma));" #WCA attrcative plateau near r=0
         energy_expression += "Afar = LJ*(1-step(1-r/((2^(1.0/6.0))*sigma)));" #WCA attractive comp far away.
         energy_expression += "Rnear = (LJ + 1)*step(1-r/((2^(1.0/6.0))*sigma));" #Uncapped Repulsive Basis
-        energy_expression += "Rfar = 0*step(1-step(1-r/((2^(1.0/6.0))*sigma)));"
-        #Curveing function, its plenty easier to write it like this instead of not having it range from zero to one
+        energy_expression += "Rfar = 0;" #*step(1-step(1-r/((2^(1.0/6.0))*sigma)));"
         energy_expression += "LJ = 4*((sigma/r)^12 - (sigma/r)^6);" #Lennard-Jones statment
         energy_expression += "epsilon = sqrt(epsilon1*epsilon2);" # mixing rule for epsilon
         energy_expression += "sigma = 0.5*(sigma1 + sigma2);" # mixing rule for sigma
+        #set up the Switch rules, since these all change together
+        switchRules += "repSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*repDeriv) + ((1-derivMode)*repBase);".format(i=i,j=j)
+        switchRules += "repBase = repVar;"
+        switchRules += "repDeriv = 1;"
+        switchRules += "repVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*{1:s});".format(lamR,lamB)
+        switchRules += "attSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*attDeriv) + ((1-derivMode)*attBase);".format(i=i,j=j)
+        switchRules += "attBase = attVar;"
+        switchRules += "attDeriv = 1;"
+        switchRules += "attVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*{1:s});".format(lamA,lamB)
+
     if Electro:
         #=== Electrostatics ===
         # This block commented out until I figure out how to do long range PME without calling updateParametersInContext(), Switched to reaction field below
@@ -177,11 +240,16 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         #energy_expression += "switchPME = {0:s};".format(lamP)
         #energy_expression += "switchE = {0:s};".format(lamE)
 
-        energy_expression += "electrostatics = {0:s}*charge1*charge2*{1:f}*reaction_field;".format(lamE, ONE_4PI_EPS0)
+        energy_expression += "electrostatics = elecSwitch*charge1*charge2*{0:f}*reaction_field;".format(ONE_4PI_EPS0)
         energy_expression += "reaction_field = (1/r) + krf*r^2 - crf;"
         energy_expression += "krf = (1/(rcut^3)) * ((dielectric-1)/(2*dielectric+1));"
         energy_expression += "crf = (1/rcut) * ((3*dielectric)/(2*dielectric+1));"
+        switchRules += "elecSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*elecDeriv) + ((1-derivMode)*elecBase);".format(i=i,j=j)
+        switchRules += "elecBase = elecVar;"
+        switchRules += "elecDeriv = 1;"
+        switchRules += "elecVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*{1:s});".format(lamE,lamB)
 
+    energy_expression += switchRules
     custom_nonbonded_force = mm.CustomNonbondedForce(energy_expression)
     #All the global/PerParticle parameters dont matter, they just will ocupy a bit extra memory
     if Electro:
@@ -195,6 +263,12 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         custom_nonbonded_force.addPerParticleParameter("epsilon") # Lennard-Jones epsilon
         custom_nonbonded_force.addGlobalParameter("{0:s}".format(lamA), 1)
         custom_nonbonded_force.addGlobalParameter("{0:s}".format(lamR), 1)
+    custom_nonbonded_force.addGlobalParameter("lam{0:d}x{1:d}B".format(i,j), 1)
+    if i2 is not None and j2 is not None:
+        custom_nonbonded_force.addGlobalParameter("lam{0:d}x{1:d}B".format(i2,j2), 1)
+    custom_nonbonded_force.addGlobalParameter("derivMode", 0)
+    custom_nonbonded_force.addGlobalParameter("thisDeriv{i:d}x{j:d}".format(i=i,j=j), 0)
+    custom_nonbonded_force.addGlobalParameter("singleSwitchMode", 0)
     return custom_nonbonded_force
 
 class basisSwitches(object):
@@ -638,10 +712,10 @@ class basisExamol(object):
         if self.context is not None:
             print "Cannot make new integrator with existing context!"
         else:
-            #self.integrator = mm.LangevinIntegrator(self.temperature, 1.0/unit.picosecond, self.timestep)
-            self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep)
-            self.integrator = self.integratorEngine.integrator
-            self.buildThermostat()
+            self.integrator = mm.LangevinIntegrator(self.temperature, 1.0/unit.picosecond, self.timestep)
+            #self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep)
+            #self.integrator = self.integratorEngine.integrator
+            #self.buildThermostat()
         return
 
     def buildBarostat(self):
@@ -873,8 +947,12 @@ class basisExamol(object):
         #Get current total potential and state
         currentLambda = self.getLambda()
         currentPotential = self.getPotential()
+        currentDerivMode = self.context.getParameter('derivMode')
+        currentSingleSwitchMode = self.context.getParameter('singleSwitchMode') 
         #Start at fully decoupled potential
         self.assignLambda(blankLamVector)
+        self.context.setParameter('derivMode', 0)
+        self.context.setParameter('singleSwitchMode', 1) 
         #Cycle through the lambda
         forceGroupI = 1 #starting force group for ith->solvent
         forceGroupII = self.Ni+1 #Starting force group for i->i interaction
@@ -928,6 +1006,8 @@ class basisExamol(object):
             print "Delta Energy: {0:f}".format(err)
         #Reset the state
         self.assignLambda(currentLambda)
+        self.context.setParameter('derivMode', currentDerivMode)
+        self.context.setParameter('singleSwitchMode', currentSingleSwitchMode) 
         #Bundle energies
         return returns
 
@@ -948,6 +1028,7 @@ class basisExamol(object):
                             #Add in the cross interactions unique counts
                             basisCount += 1
         self.totalBasis = basisCount
+        return
     
     def unravelBasis(self, array):
         #Helper function to unravel a flat, non-zero array into a dictionary of arrays format of type {'standard':[Ni,Nj,standardNumBasis+1], 'cross':[Ni,Nj,Ni,Nj,crossNumBasis]}

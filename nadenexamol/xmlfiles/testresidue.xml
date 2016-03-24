@@ -774,9 +774,9 @@
    <Bond from="6" to="1"/>
    <Bond from="7" to="3"/>
    <Bond from="8" to="5"/>
-   <Atom name="H1" type="coreH"/>
-   <Atom name="H1" type="coreH"/>
-   <Atom name="H1" type="coreH"/>
+   <Atom name="H1C1R1" type="coreH"/>
+   <Atom name="H1C2R1" type="coreH"/>
+   <Atom name="H1C3R1" type="coreH"/>
   </Residue>
  </Residues>
 </ForceField>

@@ -21,6 +21,8 @@ constraints=app.HBonds
 rigidWater=True
 #Ewald Tolerance 
 eET=0.0005
+NA = unit.AVOGADRO_CONSTANT_NA
+kB = unit.BOLTZMANN_CONSTANT_kB * NA
 
 def getArbitraryForce(system, force):
     #Get the instance of specified force from the openmm system
@@ -136,7 +138,7 @@ def maxPBC(targetSystem, additionalSystem, percentNudge=1):
     targetSystem.setDefaultPeriodicBoxVectors(*newPBV)
     return
 
-def addToMainTopology(mainTopology, addontopology, Ncore, addBonds=False):
+def addToMainTopology(mainTopology, addontopology, Ncore, iSite, jSite, addBonds=False):
     #Add the atoms from the addontopology to the mainTopology
     #Atom->Residue->Chain->Topology
     #Chain ownership has to be passed from the addontopology to the main topology before adding the atom to the main topology
@@ -149,6 +151,8 @@ def addToMainTopology(mainTopology, addontopology, Ncore, addBonds=False):
     coreAtoms = [atom for atom in mainTopology.atoms()][:Ncore]
     for atom in addontopology.atoms():
         if int(atom.id) > Ncore:
+            #Create a unique name for the atom
+            namemap = atom.name + "C{i:d}R{j:d}".format(i=iSite+1, j=jSite+1)
             atomMain = mainTopology.addAtom(atom.name, atom.element, mainres)
             atommap.append((atom,atomMain))
         else: #Map the core atoms
@@ -255,3 +259,29 @@ def basisMap(lam, coupling, atC='down', lamP=None):
                 returns[basis] = lams[lamCounter]
             lamCounter += 1
     return returns
+
+def computeHarmonicBias(lamVector, Ni, Nj, lamMin = 0.3, K = 1.0 * unit.kilojoules_per_mole):
+    #Sanity check for the harmonic bias force
+    K = K/unit.kilojoules_per_mole
+    bias = 0
+    for i in xrange(Ni):
+        for j in xrange(Nj):
+            if lamVector[i,j] >= lamMin:
+                for k in xrange(Nj):
+                    if k != j and lamVector[i,k] >= lamMin:
+                        bias += K*(lamVector[i,k] - lamMin)**2
+    return bias*unit.kilojoules_per_mole
+def computeHarmonicBiasDerivative(i,j, lamVector, Ni, Nj, lamMin = 0.3, K = 1.0 * unit.kilojoules_per_mole):
+    #Sanity check for the harmonic bias force
+    K = K/unit.kilojoules_per_mole
+    bias = 0
+    for loopi in xrange(Ni):
+        for loopj in xrange(Nj):
+            if loopi == i and loopj == j and lamVector[i,j] == lamMin : #Dirac delta on heaviside
+                for k in xrange(Nj):
+                    if k != j and lamVector[i,k] >= lamMin:
+                        bias += K*(lamVector[i,k]-lamMin)**2
+            else:
+                if lamVector[loopi,loopj] >= lamMin and lamVector[i,j] >= lamMin:
+                    bias += 2*K*(lamVector[i,j] - lamMin)
+    return bias*unit.kilojoules_per_mole

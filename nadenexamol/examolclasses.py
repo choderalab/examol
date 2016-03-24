@@ -45,14 +45,17 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         lamB = 'lam{0:s}x{1:s}B*lam{2:s}x{3:s}B'.format(str(i),str(j),str(i2),str(j2))
    
     #Start energy Expression
-    energy_expression = ""
+    if i2 is None and j2 is None: #Conditional for approximate potential
+        energy_expression = "theEnergy;"
+    else:
+        energy_expression = "theEnergy*includeSecond;"
     switchRules = ''
     if LJ and Electro:
-        energy_expression +=  "epsilon*(RepSwitchCappedBasis + AttSwitchBasis + CappingSwitchBasis) + electrostatics;"
+        energy_expression +=  "theEnergy = epsilon*(RepSwitchCappedBasis + AttSwitchBasis + CappingSwitchBasis) + electrostatics;"
     elif LJ:
-        energy_expression +=  "epsilon*(RepSwitchCappedBasis + AttSwitchBasis + CappingSwitchBasis);"
+        energy_expression +=  "theEnergy = epsilon*(RepSwitchCappedBasis + AttSwitchBasis + CappingSwitchBasis);"
     elif Electro:
-        energy_expression +=  "electrostatics;"
+        energy_expression +=  "theEnergy = electrostatics;"
     else:
         print("I need some type of nonbonded force!")
         raise
@@ -96,7 +99,7 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         energy_expression += "sigma = 0.5*(sigma1 + sigma2);" # mixing rule for sigma
         #Write the rules for the individual switches
         energy_expression += switchRules
-        switchRules += "repSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*repDeriv) + ((1-derivMode)*repBase);".format(i=i,j=j)
+        switchRules += "repSwitch = (derivMode*repDeriv) + ((1-derivMode)*repBase);"
         switchRules += "repBase = pa*(repVar^4) + pb*(repVar^3) + pc*(repVar^2) + (1-pa-pb-pc)*repVar;"
         #Derivative dU/dLB = pU/pLR * pLR/pLB
         switchRules += "repDeriv = (4*pa*(repVar^3) + 3*pb*(repVar^2) + 2*pc*(repVar) + (1-pa-pb-pc))*RDerivCheck;"
@@ -108,7 +111,7 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         switchRules += "Rcheck1 = step(Rscale); Rcheck2 = step(1-Rscale); Rcheck3 = step(Rscale-1);"
         switchRules += "Rscale = ((nStage-1)*{lam:s}-{off:d});".format(lam=lamB,off=0)
         #Attractive
-        switchRules += "attSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*attDeriv) + ((1-derivMode)*attBase);".format(i=i,j=j)
+        switchRules += "attSwitch = (derivMode*attDeriv) + ((1-derivMode)*attBase);"
         switchRules += "attBase = attVar;"
         switchRules += "attDeriv = 1*ADerivCheck;"
         switchRules += "ADerivCheck = (nStage-1)*Acheck1*Acheck2;"
@@ -117,11 +120,11 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         switchRules += "Acheck1 = step(Ascale); Acheck2 = step(1-Ascale); Acheck3 = step(Ascale-1);"
         switchRules += "Ascale = ((nStage-1)*{lam:s}-{off:d});".format(lam=lamB,off=1)
         #Cap rules
-        switchRules += "capSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*capDeriv) + ((1-derivMode)*capBase);".format(i=i,j=j)
+        switchRules += "capSwitch = (derivMode*capDeriv) + ((1-derivMode)*capBase);"
         switchRules += "capBase = capVar;"
         switchRules += "capDeriv = 1*CDerivCheck;"
         switchRules += "CDerivCheck = (nStage-1)*delta({lam:s} - 1.0/(nStage-1));".format(lam=lamB)
-        switchRules += "capVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*delta({1:s} - 1.0/(nStage-1) + 0.000001));".format(lamC,lamB)
+        switchRules += "capVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*step({1:s} - 1.0/(nStage-1) - 0.000001));".format(lamC,lamB)
     if Electro:
         #=== Electrostatics ===
         # This block commented out until I figure out how to do long range PME without calling updateParametersInContext(), Switched to reaction field below
@@ -139,7 +142,7 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         energy_expression += "reaction_field = (1/r) + krf*r^2 - crf;"
         energy_expression += "krf = (1/(rcut^3)) * ((dielectric-1)/(2*dielectric+1));"
         energy_expression += "crf = (1/rcut) * ((3*dielectric)/(2*dielectric+1));"
-        switchRules += "elecSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*elecDeriv) + ((1-derivMode)*elecBase);".format(i=i,j=j)
+        switchRules += "elecSwitch = (derivMode*elecDeriv) + ((1-derivMode)*elecBase);"
         switchRules += "elecBase = elecVar;"
         switchRules += "elecDeriv = 1*EDerivCheck;"
         switchRules += "EDerivCheck = (nStage-1)*Echeck1*Echeck2;"
@@ -167,8 +170,8 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
     custom_nonbonded_force.addGlobalParameter("lam{0:d}x{1:d}B".format(i,j), 1)
     if i2 is not None and j2 is not None:
         custom_nonbonded_force.addGlobalParameter("lam{0:d}x{1:d}B".format(i2,j2), 1)
+        custom_nonbonded_force.addGlobalParameter("includeSecond", 1)
     custom_nonbonded_force.addGlobalParameter("derivMode", 0)
-    custom_nonbonded_force.addGlobalParameter("thisDeriv{i:d}x{j:d}".format(i=i,j=j), 0)
     custom_nonbonded_force.addGlobalParameter("singleSwitchMode", 0)
     
     return custom_nonbonded_force
@@ -192,14 +195,17 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         lamB = 'lam{0:s}x{1:s}B*lam{2:s}x{3:s}B'.format(str(i),str(j),str(i2),str(j2))
    
     #Start energy Expression
-    energy_expression = ""
+    if i2 is None and j2 is None: #Conditional for approximate potential
+        energy_expression = "theEnergy;"
+    else:
+        energy_expression = "theEnergy*includeSecond;"
     switchRules = ""
     if LJ and Electro:
-        energy_expression +=  "epsilon*(RepSwitchBasis + AttSwitchBasis) + electrostatics;"
+        energy_expression +=  "theEnergy = epsilon*(RepSwitchBasis + AttSwitchBasis) + electrostatics;"
     elif LJ:
-        energy_expression +=  "epsilon*(RepSwitchBasis + AttSwitchBasis);"
+        energy_expression +=  "theEnergy = epsilon*(RepSwitchBasis + AttSwitchBasis);"
     elif Electro:
-        energy_expression +=  "electrostatics;"
+        energy_expression +=  "theEnergy = electrostatics;"
     else:
         print("I need some type of nonbonded force!")
         raise
@@ -219,11 +225,11 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         energy_expression += "epsilon = sqrt(epsilon1*epsilon2);" # mixing rule for epsilon
         energy_expression += "sigma = 0.5*(sigma1 + sigma2);" # mixing rule for sigma
         #set up the Switch rules, since these all change together
-        switchRules += "repSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*repDeriv) + ((1-derivMode)*repBase);".format(i=i,j=j)
+        switchRules += "repSwitch = (derivMode*repDeriv) + ((1-derivMode)*repBase);"
         switchRules += "repBase = repVar;"
         switchRules += "repDeriv = 1;"
         switchRules += "repVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*{1:s});".format(lamR,lamB)
-        switchRules += "attSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*attDeriv) + ((1-derivMode)*attBase);".format(i=i,j=j)
+        switchRules += "attSwitch = (derivMode*attDeriv) + ((1-derivMode)*attBase);"
         switchRules += "attBase = attVar;"
         switchRules += "attDeriv = 1;"
         switchRules += "attVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*{1:s});".format(lamA,lamB)
@@ -244,7 +250,7 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         energy_expression += "reaction_field = (1/r) + krf*r^2 - crf;"
         energy_expression += "krf = (1/(rcut^3)) * ((dielectric-1)/(2*dielectric+1));"
         energy_expression += "crf = (1/rcut) * ((3*dielectric)/(2*dielectric+1));"
-        switchRules += "elecSwitch = (delta(1-thisDeriv{i:d}x{j:d})*derivMode*elecDeriv) + ((1-derivMode)*elecBase);".format(i=i,j=j)
+        switchRules += "elecSwitch = (derivMode*elecDeriv) + ((1-derivMode)*elecBase);"
         switchRules += "elecBase = elecVar;"
         switchRules += "elecDeriv = 1;"
         switchRules += "elecVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*{1:s});".format(lamE,lamB)
@@ -266,10 +272,80 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
     custom_nonbonded_force.addGlobalParameter("lam{0:d}x{1:d}B".format(i,j), 1)
     if i2 is not None and j2 is not None:
         custom_nonbonded_force.addGlobalParameter("lam{0:d}x{1:d}B".format(i2,j2), 1)
+        custom_nonbonded_force.addGlobalParameter("includeSecond", 1)
     custom_nonbonded_force.addGlobalParameter("derivMode", 0)
-    custom_nonbonded_force.addGlobalParameter("thisDeriv{i:d}x{j:d}".format(i=i,j=j), 0)
     custom_nonbonded_force.addGlobalParameter("singleSwitchMode", 0)
     return custom_nonbonded_force
+
+def biasDerivative(i, j, Ni, Nj, lamMin = 0.3,  K = 1.0):
+    '''
+    Bias derivative in the lambda dims. Flat bottom conditional harmonic restraint
+    
+    lamMin : Float
+        The minimum threshold for Heaviside step saying "this group is approaching fully coupled"
+    K       : float
+        The "spring constant" in the harmonic restraint, units of kJ/(mol lam^2)
+    '''
+    energy_expression = ''
+    lamVar = 'lam{i:d}x{j:d}B'
+    basisij = lamVar.format(i=i,j=j)
+    #Set up Heaviside step and energy expression, we also want bias OFF in single switch mode
+    energy_expression += "(1-singleSwitchMode)*derivMode*biasSum;"
+    biasObjs = []
+    biasVars = []
+    for loopi in xrange(Ni):
+        for loopj in xrange(Nj):
+            if loopi == i and loopj == j: #check for ij == ik
+                #Generate step function bias
+                ikObjs = ["step({basisik:s} - {lamMin:f})*{K:f}*({basisik:s} - {lamMin:f})^2".format(basisik=lamVar.format(i=i,j=loopk), lamMin=lamMin, K=K) for loopk in xrange(Nj) if loopk != j]
+                if len(ikObjs) == 0:
+                    biasObjs.append('delta({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(0)')
+                else:
+                    biasObjs.append('delta({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(' + ' + '.join(ikObjs) + ')')
+            else:
+                basisij2 = lamVar.format(i=loopi,j=loopj)
+                biasObjs.append("step({basisij2:s} - {lamMin:f})*step({basisij:s} - {lamMin:f})*2*{K:f}*({basisij:s} - {lamMin:f})".format(basisij=basisij, lamMin=lamMin,  basisij2=basisij2, K=K))
+            biasVars.append(lamVar.format(i=loopi,j=loopj))
+    biasSum = ' + '.join(biasObjs)
+    energy_expression += "biasSum = {0};".format(biasSum)
+    custom_external_force = mm.CustomExternalForce(energy_expression)
+    custom_external_force.addGlobalParameter('singleSwitchMode', 0)
+    custom_external_force.addGlobalParameter('derivMode', 0)
+    for var in biasVars:
+        custom_external_force.addGlobalParameter(var, 1)
+    return custom_external_force
+
+def biasPotential(Ni, Nj, lamMin = 0.3 , K = 1.0):
+    '''
+    Bias derivative in the lambda dims. Flat bottom conditional harmonic restraint
+    
+    lamMin : Float
+        The minimum threshold for Heaviside step saying "this group is approaching fully coupled"
+    K       : float
+        The "spring constant" in the harmonic restraint, units of kJ/(mol lam^2)
+    '''
+    energy_expression = ''
+    lamVar = 'lam{i:d}x{j:d}B'
+    biasObjs = []
+    biasVars = []
+    #energy_expression += "(1-singleSwitchMode)*(1-derivMode)*biasSum;"
+    energy_expression += "(1-derivMode)*biasSum;"
+    for i in xrange(Ni):
+        for j in xrange(Nj):
+            basisij = lamVar.format(i=i,j=j)
+            ikObjs = ["step({basisik2:s} - {lamMin:f})*{K:f}*({basisik2:s} - {lamMin:f})^2".format(basisik2=lamVar.format(i=i,j=k), lamMin=lamMin, K=K) for k in xrange(Nj) if k != j]
+            if len(ikObjs) == 0:
+                biasObjs.append('step({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(0)')
+            else:
+                biasObjs.append('step({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(' + ' + '.join(ikObjs) + ')')
+            biasVars.append(basisij)
+    energy_expression += 'biasSum = ' + ' + '.join(biasObjs) + ';'
+    custom_external_force = mm.CustomExternalForce(energy_expression)
+    #custom_external_force.addGlobalParameter('singleSwitchMode', 0)
+    custom_external_force.addGlobalParameter('derivMode', 0)
+    for var in biasVars:
+        custom_external_force.addGlobalParameter(var, 1)
+    return custom_external_force
 
 class basisSwitches(object):
     def _setProtocol(self,protocol):
@@ -430,11 +506,13 @@ class basisExamol(object):
                         self.mainBondForce.addBond(atomi, atomj, eqdist, k)
             elif isinstance(referenceForce, mm.HarmonicAngleForce):
                 customAngleForce = self._addAngleForceWithCustom(referenceForce, i, j)
-                customAngleForce.setForceGroup(i+1)
+                #customAngleForce.setForceGroup(i+1)
+                customAngleForce.setForceGroup(self.calcGroup(i,j))
                 self.mainSystem.addForce(customAngleForce)
             elif isinstance(referenceForce, mm.PeriodicTorsionForce):
                 customTorsionForce = self._addTorsionForceWithCustom(referenceForce, i, j)
-                customTorsionForce.setForceGroup(i+1)
+                #customTorsionForce.setForceGroup(i+1)
+                customTorsionForce.setForceGroup(self.calcGroup(i,j))
                 self.mainSystem.addForce(customTorsionForce)
             elif isinstance(referenceForce, mm.NonbondedForce):
                 #Add the particle to the main nonbonded force. Custom will come after
@@ -472,7 +550,7 @@ class basisExamol(object):
                 #set PBC's, probably not needed here
                 maxPBC(self.mainSystem, Rsystem)
                 #Add topologies together, only needed to add solvent to the system
-                addToMainTopology(self.mainTopology, Rcoord.getTopology(), self.Ncore)
+                addToMainTopology(self.mainTopology, Rcoord.getTopology(), self.Ncore, i, j)
                 self.mainTopology.setPeriodicBoxVectors(self.mainSystem.getDefaultPeriodicBoxVectors())
                 # === Add forces (exclusions later, for now, just get in all the defaults) ===
                 self._addRSystemToMain(i,j)
@@ -518,12 +596,13 @@ class basisExamol(object):
         #Build the i to common interactions
         nbForceList = [] #will loop through this afterwords to add particles
         coreForceList = [] #Special group of forces handling the core
-        forceGroupI = 1 #starting force group for ith->solvent
-        forceGroupII = self.Ni+1 #Starting force group for i->i interaction
+        #forceGroupI = 1 #starting force group for ith->solvent
+        #forceGroupII = self.Ni+1 #Starting force group for i->i interaction
         for i in xrange(self.Ni):
             #i-> solvent force groups are all in the initial force groups
             for j in xrange(self.Nj):
-                forceGroupII = (self.Ni+1)+(i*self.Ni - (i**2+i)/2) #starting Force group for i->i interactions
+                forceGroupI = self.calcGroup(i,j)
+                #forceGroupII = (self.Ni+1)+(i*self.Ni - (i**2+i)/2) #starting Force group for i->i interactions
                 #ij -> solvent interactions
                 #Fetch energy
                 basisForce = basisEnergy(i,j)
@@ -548,6 +627,7 @@ class basisExamol(object):
                 for i2 in xrange(i+1,self.Ni): #no need to loop backwards, otherwise will double up on force
                     for j2 in xrange(self.Nj): #All j affected, just not same i
                         #Check for how the cross terms are handled.
+                        forceGroupII = self.calcGroup(i,j,i2,j2)
                         useCrossCap = False
                         for step in self.protocol['crossBasisCoupling']:
                             if 'C' in step:
@@ -569,8 +649,8 @@ class basisExamol(object):
                         coreForce2.setForceGroup(forceGroupII)
                         nbForceList.append(basisForce2)
                         coreForceList.append({'i':i, 'j':j, 'i2':i2, 'j2':j2, 'force':coreForce2})
-                    forceGroupII += 1
-            forceGroupI += 1
+                    #forceGroupII += 1
+            #forceGroupI += 1
         #Bring over Nonbonded parameters to the forces
         nParticles = self.mainSystem.getNumParticles()
         #Get all alchemical atoms
@@ -624,6 +704,25 @@ class basisExamol(object):
                 Rforce.addExclusion(atomi, atomj)
                 coreForce['force'].addExclusion(atomi, atomj)
         stdout.write('\n')
+        return
+    
+    def _buildBiasForce(self):
+        #Build the conditional multi-dim flat-bottom harmonic bias in the lambda dimentions
+        #Get the normal bias force
+        biasU = biasPotential(self.Ni,self.Nj)
+        #Tack the bias potential as the last force group
+        biasUGroup = self.calcGroup(self.Ni-1, self.Nj-1, self.Ni-1, self.Nj-1) + 1
+        biasU.setForceGroup(biasUGroup)
+        #Add the forces ONLY to the first particle so that we dont get the energy added to EVERY particle
+        biasU.addParticle(0)
+        self.mainSystem.addForce(biasU)
+        for i in xrange(self.Ni):
+            for j in xrange(self.Nj):
+                biasForce = biasDerivative(i, j, self.Ni, self.Nj)
+                biasForceGroup = self.calcGroup(i,j)
+                biasForce.setForceGroup(biasForceGroup)
+                biasForce.addParticle(0)
+                self.mainSystem.addForce(biasForce)
         return
 
     def _addSolvent(self):
@@ -695,7 +794,7 @@ class basisExamol(object):
         return lamVector
     
     def groupFlag(self, listin):
-        #Take a list of force group IDs (ints from [0,31]) and cast it to the bitwise flag for openmm
+        #Take a list of force group IDs (ints from [0,31]) and cast it to the bitwise flag for unmodified openmm
         bits = '0'*32
         if type(listin) is int:
             listin = [listin]
@@ -703,19 +802,45 @@ class basisExamol(object):
         for flag in listin:
             bits[-flag-1] = '1'
         return int(''.join(bits), 2)
+ 
+    def calcGroup(self, *args):
+        #Given an i and j, then optionally an i2 and j2, calculate the force group with the expanded groups needed.
+        if len(args) == 2:
+            i,j = args
+            return 1 + i*self.Nj + j
+        elif len(args) == 4:
+            i,j,i2,j2 = args
+            maxMainGroup = self.Ni*self.Nj + 1
+            #Because the i2 variable is a decreasing function of i, flattening the groups requires knowledge of the previous sizes
+            #\sum{Ni-(x+1)}_{x=0}^{i-1}
+            sizeOfPreviousISets = (i*(2*self.Ni-i-1)/2 * self.Nj**2)
+            sizeOfCurrentISet = self.Ni-(i+1)
+            return maxMainGroup + sizeOfPreviousISets + (j * sizeOfCurrentISet * self.Nj) + ((i2-(i+1)) * self.Nj) + j2
+        else:
+            print("Only i,j or  i,j,i2,j2 arguments accepted!")
+            raise(Exception)
 
     def buildThermostat(self):
         self.thermostat = mm.AndersenThermostat(self.temperature, 1.0/unit.picosecond)
         self.mainSystem.addForce(self.thermostat)
 
-    def buildIntegrator(self):
+    def buildIntegrator(self, thermostat=True):
         if self.context is not None:
             print "Cannot make new integrator with existing context!"
         else:
-            self.integrator = mm.LangevinIntegrator(self.temperature, 1.0/unit.picosecond, self.timestep)
+            ##
+            #self.integrator = mm.LangevinIntegrator(self.temperature, 1.0/unit.picosecond, self.timestep)
+            ##
             #self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep)
             #self.integrator = self.integratorEngine.integrator
-            #self.buildThermostat()
+            #--
+            #self.integrator = mm.VerletIntegrator(self.timestep)
+            #--
+            self.integrator = VelocityVerletIntegrator(self.timestep)
+            if thermostat:
+                self.buildThermostat()
+            else:
+                self.thermostat = None
         return
 
     def buildBarostat(self):
@@ -733,13 +858,13 @@ class basisExamol(object):
             self.platform = mm.Platform.getPlatformByName(self.protocol['platform'])
         return
 
-    def buildContext(self,provideContext=False):
+    def buildContext(self,provideContext=False, thermostat=True, barostat=True):
         if self.context is not None:
             print "Context already made!"
             return
         if self.integrator is None:
-            self.buildIntegrator()
-        if self.barostat is None:
+            self.buildIntegrator(thermostat=thermostat)
+        if self.barostat is None and barostat:
             self.buildBarostat()
         if self.integrator is None:
             self.buildIntegrator()
@@ -833,13 +958,17 @@ class basisExamol(object):
                         lams2 = self._castLambda(lamVector[i2,j2], method, self.protocol['crossBasisCoupling'])
                         for basis in crossBasis:
                             self.context.setParameter('lam{0:s}x{1:s}x{2:s}x{3:s}{4:s}'.format(str(i),str(j),str(i2),str(j2),basis), lams1[basis]*lams2[basis])
+        try: 
+            self.integratorEnginge.initilizeTheta(self.currentLambda)
+        except:
+            pass
         return
 
     def getPotential(self, groups=None):
-       #Helper function to shorthand the context.getState(...).getPotentialEnergy() command
-       if groups is None:
-           groups = -1
-       return self.context.getState(enforcePeriodicBox=True,getEnergy=True,groups=groups).getPotentialEnergy()
+        #Helper function to shorthand the context.getState(...).getPotentialEnergy() command
+        if groups is None:
+            groups = -1
+        return self.context.getState(enforcePeriodicBox=True,getEnergy=True,groups=groups).getPotentialEnergy()
 
 
     def _findUniqueBasis(self, stage, switches):
@@ -921,6 +1050,7 @@ class basisExamol(object):
             returns['crossHValues'] = crossHValues
         basisPotential = np.sum(standardBasis * standardHValues) + np.sum(crossBasis * crossHValues)
         basisPotential += unaffectedPotential
+        basisPotential += basis['harmonicBias']
         returns['potential'] = basisPotential
         return returns
 
@@ -949,10 +1079,16 @@ class basisExamol(object):
         currentPotential = self.getPotential()
         currentDerivMode = self.context.getParameter('derivMode')
         currentSingleSwitchMode = self.context.getParameter('singleSwitchMode') 
-        #Start at fully decoupled potential
-        self.assignLambda(blankLamVector)
+        #Set the mode to compute basis
         self.context.setParameter('derivMode', 0)
         self.context.setParameter('singleSwitchMode', 1) 
+        #Get the Harmonic Bias Potential before setting states to 0
+        groups = self.calcGroup(self.Ni-1, self.Nj-1, self.Ni-1, self.Nj-1) + 1
+        harmonicBias = self.getPotential(groups=groups)
+        #Start at fully decoupled potential
+        self.assignLambda(blankLamVector)
+        #import pdb
+        #pdb.set_trace()
         #Cycle through the lambda
         forceGroupI = 1 #starting force group for ith->solvent
         forceGroupII = self.Ni+1 #Starting force group for i->i interaction
@@ -960,7 +1096,9 @@ class basisExamol(object):
             for j in xrange(self.Nj):
                 forceGroupII = (self.Ni+1)+(i*self.Ni - (i**2+i)/2) #starting Force group for i->i interactions
                 #rijIndex = i*Ni + j
-                groups = self.groupFlag(forceGroupI)
+                #groups = self.groupFlag(forceGroupI)
+                #groups = forceGroupI
+                groups = self.calcGroup(i,j)
                 #Compute the bonded terms
                 self.context.setParameter(standardParameter.format(i=str(i), j=str(j), b='B'), 1)
                 rijSolvBasis[i,j,-1] = self.getPotential(groups=groups)
@@ -977,7 +1115,9 @@ class basisExamol(object):
                 #Loop through i2/j2 interactions
                 for i2 in xrange(i+1,self.Ni): #no need to loop backwards, otherwise will double up on energy calculations
                     for j2 in xrange(self.Nj): #All j affected, just not same i
-                        groups = self.groupFlag(forceGroupII)
+                        #groups = self.groupFlag(forceGroupII)
+                        #groups = forceGroupII
+                        groups = self.calcGroup(i,j,i2,j2)
                         for uniqueSetCount2 in xrange(self.crossNumBasis):
                             basisSet2 = self._flatCrossUniqueBasis[uniqueSetCount2]
                             for basis in basisSet2:
@@ -985,14 +1125,16 @@ class basisExamol(object):
                             rijRij2Basis[i,j,i2,j2,uniqueSetCount2] = self.getPotential(groups=groups)
                             for basis in basisSet2:
                                 self.context.setParameter(crossParameter.format(i=str(i), j=str(j), i2=str(i2), j2=str(j2), b=basis), 0)
-                    forceGroupII += 1
-            forceGroupI += 1
+                    #forceGroupII += 1
+            #forceGroupI += 1
         #Lastly, unaffected energies
-        groups = self.groupFlag(0)
+        #groups = self.groupFlag(0)
+        groups = 0
         unaffectedPotential = self.getPotential(groups=groups)
         returns = {}
         returns['standardBasis'] = rijSolvBasis
         returns['crossBasis'] = rijRij2Basis
+        returns['harmonicBias'] = harmonicBias
         returns['unaffectedPotential'] = unaffectedPotential
 
         #Ensure total energy = bais function energy. This is a debug sanity check
@@ -1065,7 +1207,7 @@ class basisExamol(object):
         defaultProtocols['temperature'] = 298*unit.kelvin
         defaultProtocols['pressure'] = 1*unit.bar
         defaultProtocols['platform'] = 'OpenCL'
-        defaultProtocols['timestep'] = 2*unit.femtosecond
+        defaultProtocols['timestep'] = 1*unit.femtosecond
         defaultProtocols['standardSwitches'] = None
         defaultProtocols['crossSwitches'] = {'R':'linear'}
         defaultProtocols['skipContextUnits'] = True
@@ -1134,6 +1276,8 @@ class basisExamol(object):
         self._addSolvent()
         #Set up the Nonbonded Forces
         self._buildNonbonded()
+        #Set up bias forces
+        self._buildBiasForce()
         
         #Initilize integrator, barostat, platform, context
         self.barostat = None

@@ -123,6 +123,34 @@ def addRParticles(mainSystem, coreSystem, corecoords, Rsystem, Rcoords):
     ##Atoms, bonds, angles, torsions, dihedrals
     return range(Nmain, mainSystem.getNumParticles())
 
+def checkEnergies(sim, steps=100):
+    context = sim.context
+    integrator = sim.integrator
+    if sim.barostat is not None or sim.thermostat is not None or isinstance(integrator,mm.LangevinIntegrator) or isinstance(integrator,mm.BrownianIntegrator):
+        print("Cannot valitate energy if not in NVE ensemble")
+        return
+    currentState = context.getState(getPositions=True,getVelocities=True,getEnergy=True)
+    pos0 = currentState.getPositions(asNumpy=True)
+    vel0 = currentState.getVelocities(asNumpy=True)
+    velLast = vel0
+    #Take 1 step to offset velocity
+    integrator.step(1)        
+    ke = np.zeros(steps)*unit.kilojoules_per_mole
+    pe = np.zeros(steps)*unit.kilojoules_per_mole
+    for step in xrange(steps):
+        state = context.getState(getEnergy=True, getVelocities=True)
+        pe[step] = state.getPotentialEnergy()
+        velNext = state.getVelocities(asNumpy=True)
+        context.setVelocities((velLast+velNext)/2)
+        ke[step] = context.getState(getEnergy=True).getKineticEnergy()
+        context.setVelocities(velNext)
+        velLast = velNext
+        integrator.step(1)
+    context.setPositions(pos0)
+    context.setVelocities(vel0)
+    return ke+pe
+
+
 if DEBUG_MODE:
     #DEBUG: 3 sites, 1 R-group per site (hydrogens)
     Ni = 3 #Number of ith groups
@@ -193,17 +221,39 @@ basisSim.mainPositions = newPositions
 
 #Test taking a formal step to see if wrapping is handled correctly and if energies go to NaN
 #context = mm.Context(basisSim.mainSystem, integrator, platform)
-context = basisSim.buildContext(provideContext=True)
+context = basisSim.buildContext(provideContext=True, thermostat=False, barostat=False)
 
 #=== MINIMIZE ENERGIES ===
 context.setPositions(basisSim.mainPositions)
 context.setVelocitiesToTemperature(basisSim.temperature)
+
+
+
 #context.applyConstraints(1E-6)
 #Assign random lambda vector (testing)
 #Pull the initial energy to allocte the Context__getStateAsLists call for "fair" testing, still looking into why the initial call is slow
 initialU = basisSim.computeBasisEnergy()
 profile = True
+nsteps = 1000
+if hasattr(basisSim, "integratorEngine"):
+    from examolintegrators import HybridLDMCIntegratorEngine as HLDMC
+    IE = basisSim.integratorEngine
+    if isinstance(IE, HLDMC):
+        #Convert to the true number of steps 
+        nsteps = nsteps/IE.stepsPerMC
+#pdb.set_trace()
+if profile:
+    pr = cProfile.Profile()
+    pr.enable()
+    basisSim.integrator.step(nsteps)
+    pr.disable()
+    s = StringIO.StringIO()
+    sortby = 'cumulative'
+    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    ps.print_stats()
+    print s.getvalue()
 pdb.set_trace()
+Es=checkEnergies(basisSim)
 if profile:
     pr = cProfile.Profile()
     pr.enable()

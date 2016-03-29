@@ -6,6 +6,7 @@ from simtk.openmm import app
 from copy import deepcopy
 from sys import stdout
 import itertools
+from scipy.interpolate import UnivariateSpline
 from examolhelpers import *
 from examolintegrators import *
 import cProfile
@@ -346,6 +347,61 @@ def biasPotential(Ni, Nj, lamMin = 0.3 , K = 1.0):
     for var in biasVars:
         custom_external_force.addGlobalParameter(var, 1)
     return custom_external_force
+
+def initFreeEnergyUBias(Ni, Nj):
+    '''
+    Bias with respect to the free energy.
+
+    This is implemented in a CustomCompoundBondForce as tabulated functions cannot be implemented in a CustomExternalForce
+    This force is not affected by du/dr calculations so will never update the cartesian positions. By making this force act on 2 bonded atoms 
+    of the core, we ensure the 2 particles stay nearby and the "bond" is not overstreched
+
+    Imperfect soultion, but it works!
+
+    Tabulated functions are intilized to 0
+   
+    Ni and Nj : integers
+        Dimentions of the free energy biases. These are NOT the du/dL force values, just the natrual bias.
+        This is a single force object, but multiple tabulated functions
+    '''
+    energy_expression = ''
+    energy_expression += "(1-derivMode)*biasFESum;"
+    biasObjs = []
+    tabFunctions = np.empty([Ni, Nj], dtype=object)
+    for i in xrange(Ni):
+        for j in xrange(Nj):
+            tabFunctions[i,j] = mm.Continuous1DFunction([0,0], 0, 1)
+            biasObjs.append('FEU{i:d}x{j:d}Bias(lam{i:d}x{j:d}B)'.format(i=i,j=j))
+    energy_expression += 'biasFESum = ' + ' + '.join(biasObjs) + ';'
+    custom_compound_bond_force = mm.CustomCompoundBondForce(2, energy_expression)
+    custom_compound_bond_force.addGlobalParameter('derivMode', 0)
+    for i in xrange(Ni):
+        for j in xrange(Nj):
+            custom_compound_bond_force.addTabulatedFunction('FEU{i:d}x{j:d}Bias'.format(i=i,j=j), tabFunctions[i,j])
+            custom_compound_bond_force.addGlobalParameter('lam{i:d}x{j:d}B'.format(i=i,j=j), 0)
+    custom_compound_bond_force.addBond([0,1],[])
+    return custom_compound_bond_force, tabFunctions
+
+def initFreeEnergyForceBias(i, j):
+    '''
+    Derivative of the bias with respect to the free energy.
+ 
+    This creates the force object relative to a single lambda to evaluate dU/dL.
+    See comments in initFreeEnergyUBias for details as to implementation
+
+    i and j : integers
+        Indicies of which lambda this function belongs to.
+    '''
+    energy_expression = ''
+    energy_expression += "derivMode*biasFEForce;"
+    energy_expression += "biasFEForce = FEF{i:d}x{j:d}Bias(lam{i:d}x{j:d}B);".format(i=i,j=j)
+    custom_compound_bond_force = mm.CustomCompoundBondForce(2, energy_expression)
+    custom_compound_bond_force.addGlobalParameter('derivMode', 0)
+    tabFunction = mm.Continuous1DFunction([0,0], 0, 1)
+    custom_compound_bond_force.addTabulatedFunction('FEF{i:d}x{j:d}Bias'.format(i=i,j=j), tabFunction)
+    custom_compound_bond_force.addGlobalParameter('lam{i:d}x{j:d}B'.format(i=i,j=j), 0)
+    custom_compound_bond_force.addBond([0,1],[])
+    return custom_compound_bond_force, tabFunction
 
 class basisSwitches(object):
     def _setProtocol(self,protocol):
@@ -706,7 +762,7 @@ class basisExamol(object):
         stdout.write('\n')
         return
     
-    def _buildBiasForce(self):
+    def _buildBiasForces(self):
         #Build the conditional multi-dim flat-bottom harmonic bias in the lambda dimentions
         #Get the normal bias force
         biasU = biasPotential(self.Ni,self.Nj)
@@ -716,6 +772,16 @@ class basisExamol(object):
         #Add the forces ONLY to the first particle so that we dont get the energy added to EVERY particle
         biasU.addParticle(0)
         self.mainSystem.addForce(biasU)
+        #Create the holders for the free energy tabulated potentials
+        freeEnergyBiasUTabs = np.empty([self.Ni, self.Nj],dtype=object)
+        freeEnergyBiasForceTabs = np.empty([self.Ni, self.Nj],dtype=object)
+        biasFEForces = []
+        biasFEU, freeEnergyBiasUTabs[:,:] = initFreeEnergyUBias(self.Ni, self.Nj)
+        #Append to the back of the force groups.
+        biasFEUGroup = self.calcGroup(self.Ni-1, self.Nj-1, self.Ni-1, self.Nj-1) + 2
+        biasFEU.setForceGroup(biasFEUGroup)
+        self.mainSystem.addForce(biasFEU)
+        biasFEForces.append(biasFEU)
         for i in xrange(self.Ni):
             for j in xrange(self.Nj):
                 biasForce = biasDerivative(i, j, self.Ni, self.Nj)
@@ -723,6 +789,14 @@ class basisExamol(object):
                 biasForce.setForceGroup(biasForceGroup)
                 biasForce.addParticle(0)
                 self.mainSystem.addForce(biasForce)
+                #Handle the FE Force
+                biasFEForce, freeEnergyBiasForceTabs[i,j] = initFreeEnergyForceBias(i,j)
+                biasFEForce.setForceGroup(biasForceGroup)
+                self.mainSystem.addForce(biasFEForce)
+        #Store the tabulated FE biases and derivatives for later use (activley updating later)
+        self.freeEnergyTabs = {}
+        self.freeEnergyTabs['potential'] = freeEnergyBiasUTabs
+        self.freeEnergyTabs['force'] = freeEnergyBiasForceTabs
         return
 
     def _addSolvent(self):
@@ -786,6 +860,80 @@ class basisExamol(object):
                     self.mainNonbondedForce.addException(self.solventNumbers[atomi], self.solventNumbers[atomj], chargeProd, sig, epsi)
         return
 
+    def _findUniqueBasis(self, stage, switches):
+        '''
+        Find the unique basis functions in a given stage and set of switches
+        '''
+        nbasis = len(stage)
+        uniqueBasis = [] #Empty list to determine which basis functions are controlled by the same switch
+        for i in xrange(nbasis):
+            basisi = stage[i]
+            #Check if this basis is already a part of an entry
+            alreadyMatched = False
+            for unique in uniqueBasis:
+                if basisi in unique:
+                    alreadyMatched = True
+            if not alreadyMatched:
+                uniqueBasis.append(basisi)
+            for j in xrange(i+1,nbasis):
+                basisj = stage[j]
+                if getattr(switches, basisi) == getattr(switches, basisj):
+                    #Identical Basis
+                    uniqueBasis[-1] += basisj #Append basisj
+                    #Subract 1 because they are identical
+                    #Append the idential basis to the unique entry
+                    #Interupt to avoid overcounting A==B==C condition (A==B + A==C + B==C)
+                    break
+        return uniqueBasis
+
+    def updateFreeEnergyBias(self, freeEnergies, knotMultiplier = 1):
+        '''
+        NOTE: UNTESTED
+ 
+        Update the free energy biases based on the freeEnergies fed in to the function
+        This is a slow process that requires collapsing the Context and rebuilding it from scratch.
+
+        Splines are first constructed from scipy.interpolate.UnivariateSpline then a series of spline values are generated from 
+        the knots, followed by derivative of the spline. Both these outputs are fed into the OpenMM splines that make up the 
+        Free Energy Bias
+        
+        freeEnergies : ndarray of floats of shape [Ni,Nj,S] where S is # of spline points
+            The free energies from MBAR in units of kJ/mol for each {i,j} pair assuming lam_{k,l} = 0 for all (i != k and j != l)
+            Points in the array should be uniformly measured along [0,1] domain for each i,j and is assumed as much in this function.
+
+        knotMultiplier : float >= 1
+            Multiplier on the number of spline points, S, to use internally. 
+            May improve internal representation of derivative mostly for instability (not known to happen)
+            Final count is closet integer.
+
+        OpenMM interpolates between all points, does not use any smoothing, so UnivariateSpline(s=0), may want to use that.
+        '''
+        if self.context is None:
+            print "Cannot update Free Energies with no Context!"
+            raise(Exception)
+        #Extract all the parameters/values needed to rebuild the context.
+        state = self.context.getState(getPositions = True, getVelocities = True, getForces = True, getEnergy = True, getParameters = True, enforcePeriodicBox = True)
+        freeEnergyUTabs = self.freeEnergyTabs['potential']
+        freeEnergyFTabs = self.freeEnergyTabs['force']
+        #Determine spline sizes
+        nKnots = freeEnergies.shape[-1]
+        x = np.linspace(0,1,nKnots)
+        xMM = np.linspace(0,1, int(nKnots * knotMultiplier))
+        for i in xrange(self.Ni):
+            for j in xrange(self.Nj):
+                #Build Spline
+                spline = UnivariateSpline(x, freeEnergy[i,j,:], s=0)
+                y = spline(xMM)
+                dy = spline(xMM,1)
+                #Update free energy tabulated functions
+                freeEnergyUTabs.setFunctionParameters(y, 0, 1)
+                freeEnergyFTabs.setFunctionParameters(dy, 0, 1)
+        #Rebuild context
+        self.context.reinitialize()
+        #Restore state now that the context has been rebuilt
+        self.context.setState(state)
+        return
+
     def getLambda(self):
         lamVector = np.zeros([self.Ni,self.Nj])
         for i in xrange(self.Ni):
@@ -830,13 +978,14 @@ class basisExamol(object):
         else:
             ##
             #self.integrator = mm.LangevinIntegrator(self.temperature, 1.0/unit.picosecond, self.timestep)
+            #thermostat=False
             ##
-            #self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep)
-            #self.integrator = self.integratorEngine.integrator
+            self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep)
+            self.integrator = self.integratorEngine.integrator
             #--
             #self.integrator = mm.VerletIntegrator(self.timestep)
             #--
-            self.integrator = VelocityVerletIntegrator(self.timestep)
+            #self.integrator = VelocityVerletIntegrator(self.timestep)
             if thermostat:
                 self.buildThermostat()
             else:
@@ -863,13 +1012,14 @@ class basisExamol(object):
             print "Context already made!"
             return
         if self.integrator is None:
+            if self.verbose: print("Building Integrator") 
             self.buildIntegrator(thermostat=thermostat)
         if self.barostat is None and barostat:
+            if self.verbose: print("Building Barostat") 
             self.buildBarostat()
-        if self.integrator is None:
-            self.buildIntegrator()
         if self.platform is None:
             self.buildPlatform()
+        if self.verbose: print("Building Context")
         if self.protocol['skipContextUnits']:
             #Overload the self.context.setParameter function to skip the try stripUnits arg at the start
             from simtk.openmm import _openmm as _mm
@@ -882,7 +1032,7 @@ class basisExamol(object):
         #Ensure initial values are set right
         self.assignLambda(self.getLambda())
         try: 
-            self.integratorEnginge.initilizeTheta(self.currentLambda)
+            self.integratorEnginge.initilizeIntegrator(self.currentLambda)
         except:
             pass
         if provideContext:
@@ -971,31 +1121,6 @@ class basisExamol(object):
         return self.context.getState(enforcePeriodicBox=True,getEnergy=True,groups=groups).getPotentialEnergy()
 
 
-    def _findUniqueBasis(self, stage, switches):
-        '''
-        Find the unique basis functions in a given stage and set of switches
-        '''
-        nbasis = len(stage)
-        uniqueBasis = [] #Empty list to determine which basis functions are controlled by the same switch
-        for i in xrange(nbasis):
-            basisi = stage[i]
-            #Check if this basis is already a part of an entry
-            alreadyMatched = False
-            for unique in uniqueBasis:
-                if basisi in unique:
-                    alreadyMatched = True
-            if not alreadyMatched:
-                uniqueBasis.append(basisi)
-            for j in xrange(i+1,nbasis):
-                basisj = stage[j]
-                if getattr(switches, basisi) == getattr(switches, basisj):
-                    #Identical Basis
-                    uniqueBasis[-1] += basisj #Append basisj
-                    #Subract 1 because they are identical
-                    #Append the idential basis to the unique entry
-                    #Interupt to avoid overcounting A==B==C condition (A==B + A==C + B==C)
-                    break
-        return uniqueBasis
 
     def computeArbitraryAlchemicalEnergy(self, lamVector=None, basis=None, derivative=False, provideHValues=False):
         '''
@@ -1051,6 +1176,7 @@ class basisExamol(object):
         basisPotential = np.sum(standardBasis * standardHValues) + np.sum(crossBasis * crossHValues)
         basisPotential += unaffectedPotential
         basisPotential += basis['harmonicBias']
+        basisPotential += basis['freeEnergyBias']
         returns['potential'] = basisPotential
         return returns
 
@@ -1085,6 +1211,9 @@ class basisExamol(object):
         #Get the Harmonic Bias Potential before setting states to 0
         groups = self.calcGroup(self.Ni-1, self.Nj-1, self.Ni-1, self.Nj-1) + 1
         harmonicBias = self.getPotential(groups=groups)
+        #Get the Free Energy Bias
+        groups = self.calcGroup(self.Ni-1, self.Nj-1, self.Ni-1, self.Nj-1) + 2
+        freeEnergyBias = self.getPotential(groups=groups)
         #Start at fully decoupled potential
         self.assignLambda(blankLamVector)
         #import pdb
@@ -1135,6 +1264,7 @@ class basisExamol(object):
         returns['standardBasis'] = rijSolvBasis
         returns['crossBasis'] = rijRij2Basis
         returns['harmonicBias'] = harmonicBias
+        returns['freeEnergyBias'] = freeEnergyBias
         returns['unaffectedPotential'] = unaffectedPotential
 
         #Ensure total energy = bais function energy. This is a debug sanity check
@@ -1211,6 +1341,7 @@ class basisExamol(object):
         defaultProtocols['standardSwitches'] = None
         defaultProtocols['crossSwitches'] = {'R':'linear'}
         defaultProtocols['skipContextUnits'] = True
+        defaultProtocols['verbose'] = True
         if protocol is None:
             self.protocol = defaultProtocols
         else:
@@ -1254,7 +1385,8 @@ class basisExamol(object):
         self.temperature = self.protocol['temperature']
         self.pressure = self.protocol['pressure']
         self.timestep = self.protocol['timestep']
-        #Load the core, we wont be using it for long
+        self.verbose = self.protocol['verbose']
+        #Load the core, we wont be using it in base form for long
         coreSystem, self.corecoords = self.loadpdb('pdbfiles/core/corec')
         self.corePositions = self.corecoords.getPositions(asNumpy=True) #Positions of core atoms (used for alignment)
         self.Ncore = coreSystem.getNumParticles()
@@ -1277,7 +1409,7 @@ class basisExamol(object):
         #Set up the Nonbonded Forces
         self._buildNonbonded()
         #Set up bias forces
-        self._buildBiasForce()
+        self._buildBiasForces()
         
         #Initilize integrator, barostat, platform, context
         self.barostat = None

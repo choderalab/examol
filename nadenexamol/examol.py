@@ -7,9 +7,10 @@ from copy import deepcopy
 from examolclasses import *
 from examolhelpers import *
 import cProfile, pstats, StringIO
+import sys
 
 #=== DEFINE CONSTANTS  ===
-DEBUG_MODE = True
+DEBUG_MODE = False
 #ff = app.ForceField('xmlfiles/gaff.xml', 'xmlfiles/examol.xml', 'xmlfiles/examolresidue.xml', 'tip3p.xml')
 if DEBUG_MODE:
     ff = app.ForceField('xmlfiles/gaff.xml', 'xmlfiles/examolcharge.xml', 'xmlfiles/testresidue.xml', 'tip3p.xml')
@@ -241,8 +242,12 @@ if hasattr(basisSim, "integratorEngine"):
     if isinstance(IE, HLDMC):
         #Convert to the true number of steps 
         nsteps = nsteps/IE.stepsPerMC
+integrator = basisSim.integrator
+if basisSim.verbose:
+    print "Integrating..."
 #pdb.set_trace()
 if profile:
+    sys.stdout.flush()
     pr = cProfile.Profile()
     pr.enable()
     basisSim.integrator.step(nsteps)

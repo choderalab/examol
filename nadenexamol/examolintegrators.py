@@ -19,13 +19,11 @@ class HybridLDMCIntegratorEngine(object):
     Carries out a number of lambda-dynamics MD steps then does a hybrid MD accept/reject at the end to determine if it shoudl accept the results
 
     Uses the following operators to take a timestep, q = positions, p = momentum, L is in lambda
-    pL(t/2) + p(t/2) + q(t) + qL(t) + p(t/2) + pL(t/2)
+    pL(t/2) + p(t/2) + qL(t) + q(t) + p(t/2) + pL(t/2)
     pL is offset by 1/2 timestep initially to do the following 
-    pL(t) + p(t/2) + q(t) + qL(t) + p(t/2)
+    pL(t) + p(t/2) + qL(t) + q(t) + p(t/2)
     To reduce the number of integrator steps needed per timestep
     -----------------------
-    TODO:
-    - Implement actual MC accept/reject at end of timestep
     '''
 
     def _constructIntegrator(self):
@@ -44,9 +42,9 @@ class HybridLDMCIntegratorEngine(object):
         integrator.addGlobalVariable("ke", 0)  # kinetic energy
         integrator.addPerDofVariable("xold", 0)  # old positions
         integrator.addGlobalVariable("Eold", 0)  # old energy
-        #integrator.addGlobalVariable("Eprimeold", 0)  # old energy
+        integrator.addGlobalVariable("Eprimeold", 0)  # old energy
         integrator.addGlobalVariable("Enew", 0)  # new energy
-        #integrator.addGlobalVariable("Eprimenew", 0)  # new energy
+        integrator.addGlobalVariable("Eprimenew", 0)  # new energy
         integrator.addGlobalVariable("accept", 0)  # accept or reject
         integrator.addGlobalVariable("counterMC", 0) #While block counter for MC steps 
         integrator.addGlobalVariable("stepsPerMC", self.stepsPerMC) #While block counter for MC steps 
@@ -55,82 +53,88 @@ class HybridLDMCIntegratorEngine(object):
         integrator.addPerDofVariable("x1", 0); #For constraints in cartesian
         for i in xrange(self._basisSim.Ni):
             for j in xrange(self._basisSim.Nj):
-                integrator.addGlobalVariable('theta{0:d}x{1:d}'.format(i,j), 0)
                 integrator.addGlobalVariable('old{0:d}x{1:d}B'.format(i,j), 0)
                 #Due to odd unit module issues, I need to compute sigma by hand
-                mass = self.thetaMasses[i,j] # Unit in am
+                mass = self.lamMasses[i,j] # Unit in am
                 sigma = np.sqrt(kT.value_in_unit(unit.kilojoules_per_mole)/mass)
-                integrator.addGlobalVariable('sigma{0:d}x{1:d}'.format(i,j), sigma
-                #Initilize lambda velocities by offseting them by 1/2 time step
-                integrator.addGlobalVariable('thetaV{0:d}x{1:d}'.format(i,j), 0)
+                integrator.addGlobalVariable('sigma{0:d}x{1:d}'.format(i,j), sigma)
+                integrator.addGlobalVariable('lamV{0:d}x{1:d}'.format(i,j), 0)
 
         #Integrator proper
+        #Initilize velocities for MC V-randomization
         #Draw new velocities from a maxwell boltzman distribution
         integrator.addComputePerDof("sigma", "sqrt(kT/m)")
         integrator.addUpdateContextState()
         integrator.addComputePerDof("v", "sigma*gaussian")
         for i in xrange(self._basisSim.Ni):
             for j in xrange(self._basisSim.Nj):
-                integrator.addComputeGlobal('thetaV{0:d}x{1:d}'.format(i,j), "sigma{0:d}x{1:d}*gaussian".format(i,j))
+                integrator.addComputeGlobal('old{0:d}x{1:d}B'.format(i,j), "lam{0:d}x{1:d}B".format(i,j))
+                integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), "sigma{0:d}x{1:d}*gaussian".format(i,j))
         integrator.addConstrainVelocities()
         # Store old position and energy.
         integrator.addComputeSum("ke", "0.5*m*v*v")
         integrator.addComputeGlobal("Eold", "ke + energy")
         integrator.addComputePerDof("xold", "x")
-        #integrator.addComputeGlobal("Eprimeold", "ke + energy0")
-        for i in xrange(self._basisSim.Ni):
-            for j in xrange(self._basisSim.Nj):
-                #Tracking lambda
-                integrator.addComputeGlobal('old{0:d}x{1:d}B'.format(i,j), standardParameter.format(i=i,j=j))
-                #Cast lambda -> theta
-                integrator.addComputeGlobal('theta{0:d}x{1:d}'.format(i,j), self.thetaFunctions['inverseftheta'].format(i=i,j=j))
-                #Increase Eprime
-                #group = self._basisSim.calcGroup(i,j)
-                #integrator.addComputeGlobal('Eprimeold','Eprimeold + energy{group:d}'.format(group=group))
-               
+        #Deactivate cross-alchemical terms to compute primed energy
+        integrator.addComputeGlobal("includeSecond", "0")
+        integrator.addComputeGlobal("Eprimeold", "ke + energy")
 
         # Inner symplectic steps using velocity Verlet.
         #for step in xrange(self.stepsPerMC):
         integrator.addComputeGlobal("counterMC", "0")
         integrator.beginWhileBlock("counterMC < stepsPerMC")
         if True: #This is a visual indentation block to show what is falling under the integrator's "while" block
-            integrator.addComputePerDof("v", "v+0.5*dt*f/m")
+            #pL(t)
             integrator.addComputeGlobal("derivMode", "1")
-            #Compute the velocity of each theta term
+            #Compute the velocity of each lambda term
             for i in xrange(self._basisSim.Ni):
                 for j in xrange(self._basisSim.Nj):
                     group = self._basisSim.calcGroup(i,j)
-                    integrator.addComputeGlobal('thetaV{0:d}x{1:d}'.format(i,j), 'thetaV{i:d}x{j:d} + 0.5*dt*energy{group:d}*{dftheta:s}/{m:f}'.format(i=i,j=j,group=group,m=self.thetaMasses[i,j], dftheta=self.thetaFunctions['dftheta'].format(i=i,j=j)))
+                    integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), 'lamV{i:d}x{j:d} + dt*energy{group:d}/{m:f}'.format(i=i,j=j,group=group,m=self.lamMasses[i,j]))
+            integrator.addComputeGlobal("derivMode", "0");
+            #p(t/2)
+            integrator.addComputePerDof("v", "v+0.5*dt*f/m")
+            #q(t)
             integrator.addComputePerDof("x", "x+dt*v")
+            #qL(t)
             #Update alchemcial positions
             for i in xrange(self._basisSim.Ni):
                 for j in xrange(self._basisSim.Nj):
-                    integrator.addComputeGlobal('theta{0:d}x{1:d}'.format(i,j), 'theta{i:d}x{j:d} + dt*thetaV{i:d}x{j:d}'.format(i=i,j=j))
-                    integrator.addComputeGlobal('lam{i:d}x{j:d}B'.format(i=i,j=j), self.thetaFunctions['ftheta'].format(i=i,j=j))
-            integrator.addComputeGlobal("derivMode", "0");
+                    integrator.addComputeGlobal('lam{0:d}x{1:d}B'.format(i,j), 'lam{i:d}x{j:d}B + dt*lamV{i:d}x{j:d}'.format(i=i,j=j))
+                    #Add reflective BC steps
+                    #ISSUE: IfBlocks with all R-groups is painfuly slow to construct integrator
+                    #Check if lam < 0 
+                    integrator.addComputeGlobal('lam{0:d}x{1:d}B'.format(i,j), 'step(lam{i:d}x{j:d}B)*lam{i:d}x{j:d}B + (1-step(lam{i:d}x{j:d}B))*(-lam{i:d}x{j:d}B)'.format(i=i,j=j))
+                    integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), 'step(lam{i:d}x{j:d}B)*lamV{i:d}x{j:d} + (1-step(lam{i:d}x{j:d}B))*(-lamV{i:d}x{j:d}B)'.format(i=i,j=j))
+                    #integrator.beginIfBlock("lam{0:d}x{1:d}B < 0".format(i,j))
+                    #if True: #Visual integrator IF block
+                    #    integrator.addComputeGlobal("lam{0:d}x{1:d}B".format(i,j), "-lam{0:d}x{1:d}B".format(i,j))
+                    #    integrator.addComputeGlobal("lamV{0:d}x{1:d}".format(i,j), "-lamV{0:d}x{1:d}".format(i,j))
+                    #    integrator.endBlock()
+                    #Check if lam > 1 
+                    integrator.addComputeGlobal('lam{0:d}x{1:d}B'.format(i,j), 'step(1-lam{i:d}x{j:d}B)*lam{i:d}x{j:d}B + (1-step(1-lam{i:d}x{j:d}B))*(2-lam{i:d}x{j:d}B)'.format(i=i,j=j))
+                    integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), 'step(1-lam{i:d}x{j:d}B)*lamV{i:d}x{j:d} + (1-step(1-lam{i:d}x{j:d}B))*(-lamV{i:d}x{j:d}B)'.format(i=i,j=j))
+                    #integrator.beginIfBlock("lam{0:d}x{1:d}B > 1".format(i,j))
+                    #if True: #Visual integrator IF block
+                    #    integrator.addComputeGlobal("lam{0:d}x{1:d}B".format(i,j), "2-lam{0:d}x{1:d}B".format(i,j))
+                    #    integrator.addComputeGlobal("lamV{0:d}x{1:d}".format(i,j), "-lamV{0:d}x{1:d}".format(i,j))
+                    #    integrator.endBlock()
+            #q(t)
             integrator.addComputePerDof("x1", "x")
             integrator.addConstrainPositions()
+            #p(t/2)
             integrator.addComputePerDof("v", "v+0.5*dt*f/m+(x-x1)/dt")
-            integrator.addComputeGlobal("derivMode", "1");
-            for i in xrange(self._basisSim.Ni):
-                for j in xrange(self._basisSim.Nj):
-                    group = self._basisSim.calcGroup(i,j)
-                    integrator.addComputeGlobal('thetaV{0:d}x{1:d}'.format(i,j), 'thetaV{i:d}x{j:d} + 0.5*dt*energy{group:d}*{dftheta:s}/{m:f}'.format(i=i,j=j,group=group,m=self.thetaMasses[i,j], dftheta=self.thetaFunctions['dftheta'].format(i=i,j=j)))
-                    integrator.addComputeGlobal('lam{i:d}x{j:d}B'.format(i=i,j=j), self.thetaFunctions['ftheta'].format(i=i,j=j))
-            integrator.addComputeGlobal("derivMode", "0");
             integrator.addConstrainVelocities()
             integrator.addComputeGlobal("counterMC", "counterMC + 1")
-        integrator.endBlock()
+            integrator.endBlock()
         #Accept/Reject Step
         integrator.addComputeSum("ke", "0.5*m*v*v")
+        integrator.addComputeGlobal("Eprimenew", "ke + energy0")
+        #Flip secondary interactions back on
+        integrator.addComputeGlobal("includeSecond", "1")
         integrator.addComputeGlobal("Enew", "ke + energy")
-        #integrator.addComputeGlobal("Eprimenew", "ke + energy0")
-        #for i in xrange(self._basisSim.Ni):
-        #    for j in xrange(self._basisSim.Nj):
-        #        group = self._basisSim.calcGroup(i,j)
-        #        integrator.addComputeGlobal('Eprimenew', "Eprimenew + energy{group:d}".format(group=group))
-        integrator.addComputeGlobal("accept", "step(exp(-(Enew-Eold)/kT) - uniform)")
-        #integrator.addComputeGlobal("accept", "step(exp(-((Enew-Eold)-(Eprimenew-Eprimeold))/kT) - uniform)")
+        #integrator.addComputeGlobal("accept", "step(exp(-(Enew-Eold)/kT) - uniform)") #Condition for non-approximate potential
+        integrator.addComputeGlobal("accept", "step(exp(-((Enew-Eold)-(Eprimenew-Eprimeold))/kT) - uniform)")
         integrator.addComputePerDof("x", "x*accept + xold*(1-accept)")
         for i in xrange(self._basisSim.Ni):
             for j in xrange(self._basisSim.Nj):
@@ -157,40 +161,34 @@ class HybridLDMCIntegratorEngine(object):
         """The acceptance rate: n_accept  / n_trials."""
         return self.n_accept / float(self.n_trials)
 
-    def initilizeTheta(self):
+    def initilizeIntegrator(self):
         if not hasattr(self._basisSim, 'context'):
             raise Exception("Cannot initilize theta until context exists")
         else:
-            currentLambda = self._basisSim.getLambda()
-            Ni = self._basisSim.Ni
-            Nj = self._basisSim.Nj
-            thetas = self.thetaFunctions['inverselambdaftheta'](currentLambda)
-            for i in xrange(Ni):
-                for j in xrange(Nj):
-                    self.integrator.setGlobalVariableByName('theta{j:d}x{i:d}'.format(i=i,j=j), thetas[i,j])
+            #Take initial half time step in lamV 
+            import pdb
+            pdb.set_trace()
+            self.integrator.setGlobalVariable('derivMode'.format(i,j), 1)
+            ts = self._basisSim.timestep.value_in_unit(unit.picosecond)
+            for i in xrange(self._basisSim.Ni):
+                for j in xrange(self._basisSim.Nj):
+                    #Draw initial velocities from the Maxwell-Boltzman dist.
+                    v0 = self.integrator.getGlobalVariableByName("sigma{0:d}x{1:d}".format(i,j)) * np.random.normal()
+                    group = self._basisSim.calcGroup(i,j)
+                    #Take the half timestep
+                    energyGroup = self._basisSim.context.getState(getEnergy=True, groups=group).getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
+                    self.integrator.setGlobalVariable('lamV{0:d}x{1:d}'.format(i,j), v0 + 0.5*ts*energyGroup/self.lamMasses[i,j])
+            self.integrator.setGlobalVariable('derivMode'.format(i,j), 0)
         return 
         
-    def __init__(self, basisSim, timestep, thetaMasses=None, thetaFunctions = None, stepsPerMC=10):
+    def __init__(self, basisSim, timestep, lamMasses=None, stepsPerMC=10):
         self._basisSim = basisSim
-        if thetaFunctions is None:
-            #Mapping of theta -> lambda
-            thetaFunctions = {}
-            #thetaFunctions['ftheta'] = '0.5 + 0.5*sin(theta{i:d}x{j:d})'
-            #thetaFunctions['lambdaftheta'] = lambda theta: 0.5 + 0.5*np.sin(theta)
-            #thetaFunctions['inverselambdaftheta'] = lambda lam: np.arcsin((lam-0.5)/0.5)
-            #thetaFunctions['dftheta'] = '0.5*cos(theta{i:s}x{j:s})'
-            thetaFunctions['ftheta'] = '0.5 + asin(sin(pi*theta{i:d}x{j:d}))/pi'
-            thetaFunctions['lambdaftheta'] = lambda theta: 0.5 + np.arcsin(np.sin(np.pi*theta))/np.pi
-            thetaFunctions['inverseftheta'] = "asin(sin((lam{i:d}x{j:d}x-0.5)*pi))/pi"
-            thetaFunctions['inverselambdaftheta'] = lambda lam: np.arcsin(np.sin((lam-0.5)*np.pi))/np.pi
-            thetaFunctions['dftheta'] = 'sqrt(cos(pi*theta{i:d}x{j:d})^2)*sec(pi*theta{i:d}x{j:d})'
-        self.thetaFunctions = thetaFunctions
-        if thetaMasses is None:
+        if lamMasses is None:
             #Mass assuming the default 0.5 amu A^2 from Knight and Brooks, JCTC 7 2011, pp 2728-2739
             defaultMass = (5 * unit.amu * unit.angstrom**2)
-            thetaMasses = np.empty([self._basisSim.Ni,self._basisSim.Nj],dtype=float)
-            thetaMasses.fill(defaultMass.value_in_unit(unit.amu * unit.nanometer**2))
-        self.thetaMasses = thetaMasses.reshape([self._basisSim.Ni,self._basisSim.Nj])
+            lamMasses = np.empty([self._basisSim.Ni,self._basisSim.Nj],dtype=float)
+            lamMasses.fill(defaultMass.value_in_unit(unit.amu * unit.nanometer**2))
+        self.lamMasses = lamMasses.reshape([self._basisSim.Ni,self._basisSim.Nj])
         self.timestep = timestep
         self.stepsPerMC = stepsPerMC
         self.integrator = self._constructIntegrator()
@@ -231,10 +229,6 @@ class VelocityVerletIntegrator(mm.CustomIntegrator):
         super(VelocityVerletIntegrator, self).__init__(timestep)
 
         self.addPerDofVariable("x1", 0)
-        #Testing speed
-        for i in xrange(3):
-            for j in xrange(10):
-                self.addGlobalVariable('tester{0}x{1}'.format(i,j),0)
 
         self.addUpdateContextState()
         self.addComputePerDof("v", "v+0.5*dt*f/m")
@@ -243,6 +237,3 @@ class VelocityVerletIntegrator(mm.CustomIntegrator):
         self.addConstrainPositions()
         self.addComputePerDof("v", "v+0.5*dt*f/m+(x-x1)/dt")
         self.addConstrainVelocities()    
-        for i in xrange(3):
-            for j in xrange(10):
-                self.addComputeGlobal('tester{0}x{1}'.format(i,j), "energy0".format(i*j+1))

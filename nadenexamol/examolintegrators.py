@@ -194,13 +194,6 @@ class HybridLDMCIntegratorEngine(object):
         self.integrator = self._constructIntegrator()
         return
 
-class BasisMCJumpIntegratorEngine(object):
-    '''
-    Standard integrator mixed with a MC jumps to new alchemical states
-    '''
-    def __init__(self, basisSim, timestep):
-        self._basisSim = basisSim
-
 class VelocityVerletIntegrator(mm.CustomIntegrator):
 
     """Verlocity Verlet integrator.

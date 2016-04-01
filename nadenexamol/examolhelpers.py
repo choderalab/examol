@@ -4,6 +4,7 @@ import simtk.unit as unit
 import simtk.openmm as mm
 from simtk.openmm import app
 from sys import stdout
+import netCDF4 as netcdf
 
 '''
 This module has the helper functions for examol, mostly system combinations
@@ -259,6 +260,70 @@ def basisMap(lam, coupling, atC='down', lamP=None):
                 returns[basis] = lams[lamCounter]
             lamCounter += 1
     return returns
+
+def loadnc(filename, mode='a', full=False, outputs=['energies','positions','state','MCstats','ncfile']):
+    '''
+    Load an examol.nc netCDF4, returns the netcdf file and the dictionary of entries
+
+    mode : str={'a', 'r'}
+        load the netcdf either for read only or for append when its done
+    '''
+    #Load readonly mode to get data out
+    ncfile = netcdf.Dataset(filename, 'r')
+    iterations = ncfile.variables['positions'].shape[0]
+
+    returndict = {}
+    if 'energies' in outputs:
+        energyout = {}
+        if full:
+            energyout['energy'] = ncfile.groups['energies'].variables['energy'][:]
+            energyout['unaffected'] = ncfile.groups['energies'].variables['unaffected'][:]
+            energyout['harmonicBias'] = ncfile.groups['energies'].variables['bias'][:,0]
+            energyout['freeEnergyBias'] = ncfile.groups['energies'].variables['bias'][:,1]
+            energyout['standardBasis'] = ncfile.groups['energies'].variables['standardBasis'][:,:]
+            energyout['crossBasis'] = ncfile.groups['energies'].variables['crossBasis'][:,:]
+        else:
+            energyout['energy'] = ncfile.groups['energies'].variables['energy'][-1]
+            energyout['unaffected'] = ncfile.groups['energies'].variables['unaffected'][-1]
+            energyout['harmonicBias'] = ncfile.groups['energies'].variables['bias'][-1,0]
+            energyout['freeEnergyBias'] = ncfile.groups['energies'].variables['bias'][-1,1]
+            energyout['standardBasis'] = ncfile.groups['energies'].variables['standardBasis'][-1,:]
+            energyout['crossBasis'] = ncfile.groups['energies'].variables['crossBasis'][-1,:]
+        for key in energyout.keys():
+            returndict[key] = energyout[key]
+    if 'positions' in outputs:
+        if full:
+            pos = ncfile.variables['positions'][:,:,:]
+            vol = ncfile.variables['volumes'][:]
+            box = ncfile.variables['box_vectors'][:,:,:]
+        else:
+            pos = ncfile.variables['positions'][-1,:,:] 
+            vol = ncfile.variables['volumes'][-1]
+            box = ncfile.variables['box_vectors'][-1,:,:]
+        returndict['positions'] = pos
+        returndict['volumes'] = vol
+        returndict['box_vectors'] = box
+    if 'state' in outputs:
+        if full:
+            lam = ncfile.variables['state'][:,:]
+        else:
+            lam = ncfile.variables['state'][-1,:] 
+        returndict['state'] = lam
+    if 'MCstats' in outputs:
+        if full:
+            naccept = ncfile.groups['MCStats'].variables['naccept'][:]
+            ntrials = ncfile.groups['MCStats'].variables['ntrials'][:]
+        else:
+            naccept = ncfile.groups['MCStats'].variables['naccept'][-1]
+            ntrials = ncfile.groups['MCStats'].variables['ntrials'][-1]
+        returndict['naccept'] = naccept
+        returndict['ntrials'] = ntrials
+    ncfile.close()
+    if 'ncfile' in outputs:
+        ncfile = netcdf.Dataset(filename, mode)
+    else:
+        ncfile = None
+    return ncfile, returndict
 
 def computeHarmonicBias(lamVector, Ni, Nj, lamMin = 0.3, K = 1.0 * unit.kilojoules_per_mole):
     #Sanity check for the harmonic bias force

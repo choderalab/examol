@@ -151,115 +151,19 @@ def checkEnergies(sim, steps=100):
     context.setVelocities(vel0)
     return ke+pe
 
-
-if DEBUG_MODE:
-    #DEBUG: 3 sites, 1 R-group per site (hydrogens)
-    Ni = 3 #Number of ith groups
-    Nj = 1 #Number of jth groups
-else:
-    Ni = 3 #Number of ith groups
-    Nj = 10 #Number of jth groups
-basisSim = basisExamol(Ni, Nj, ff)
-
-#Set the positions so all particles are in the box and do no wrap oddly
-box=basisSim.mainSystem.getDefaultPeriodicBoxVectors()
-box = np.array([unit.norm(vector.value_in_unit(unit.nanometer)) for vector in box])*unit.nanometer
-mincoords = np.min(basisSim.mainPositions,axis=0)
-newPositions = basisSim.mainPositions - mincoords
-nudgeDistance = (box - newPositions.max(axis=0))/2
-newPositions += nudgeDistance
-basisSim.mainPositions = newPositions
-
-#Quick code to create the PDB file with all the correct CONNECT entries (visualization)
-#Atommaps from PDB file
-#amap = range(1,Noriginal+1) #Base 1
-#amap.extend(range(Noriginal+1+1, Nnew+Noriginal+1+1)) #Base 1, ter command occupies 1
-#nC = mainSystem.getNumConstraints()
-#nB = 0
-#bondforces = []
-#for forceidx in xrange(mainSystem.getNumForces()):
-#    force = mainSystem.getForce(forceidx)
-#    if isinstance(force, mm.HarmonicBondForce) or isinstance(force, mm.CustomBondForce):
-#        bondforces.append(force)
-#        nB += force.getNumBonds()
-#bondlist = np.zeros([nB+nC, 2], dtype=int)
-#count = 0
-#for constraint in xrange(nC):
-#    atomi, atomj, r0 = mainSystem.getConstraintParameters(constraint)
-#    bondlist[count,:] = (amap[atomi], amap[atomj])
-#    count +=1
-#for force in bondforces:
-#    for bond in xrange(force.getNumBonds()):
-#        bondparam = force.getBondParameters(bond)
-#        atomi, atomj = bondparam[0], bondparam[1]
-#        bondlist[count,:] = (amap[atomi], amap[atomj])
-#        count +=1
-#conline = "CONECT{a1: >5d}{a2: >5d}\n"
-#output = ''
-#for bond in xrange(nB+nC):
-#    output += conline.format(a1=bondlist[bond,0], a2=bondlist[bond,1])
-#file = open('connects.pdb', 'w')
-#file.write(output)
-#file.close()
-#pdb.set_trace()
-
-
-#DEBUG: Testing built in reporters to see if I need something else
-#simulation = app.Simulation(mainTopology, mainSystem, integrator, platform)
-#simulation.context.setPositions(mainPositions)
-#simulation.context.setVelocitiesToTemperature(equilibriumTemperature)
-#reporter = app.PDBReporter('trajectory.pdb',1)
-##reporter = app.DCDReporter('trajectory.dcd',1)
-#reporter.report(simulation, simulation.context.getState(getPositions=True,getParameters=True, enforcePeriodicBox=True))
-#pdb.set_trace()
-#simulation.minimizeEnergy(1.0 * unit.kilojoules_per_mole / unit.nanometers, 0)
-#reporter.report(simulation, simulation.context.getState(getPositions=True,getParameters=True, enforcePeriodicBox=True))
-##reporter.report(simulation, simulation.context.getState(getPositions=True,getParameters=True))
-#simulation.reporters.append(reporter)
-#print simulation.context.getState(getEnergy=True).getPotentialEnergy()
-#pdb.set_trace()
-#simulation.step(1)
-
-#Test taking a formal step to see if wrapping is handled correctly and if energies go to NaN
-#context = mm.Context(basisSim.mainSystem, integrator, platform)
-context = basisSim.buildContext(provideContext=True, thermostat=False, barostat=False)
-
-#=== MINIMIZE ENERGIES ===
-context.setPositions(basisSim.mainPositions)
-context.setVelocitiesToTemperature(basisSim.temperature)
-
-
-
-#context.applyConstraints(1E-6)
-#Assign random lambda vector (testing)
-#Pull the initial energy to allocte the Context__getStateAsLists call for "fair" testing, still looking into why the initial call is slow
-initialU = basisSim.computeBasisEnergy()
-profile = True
-nsteps = 1000
-if hasattr(basisSim, "integratorEngine"):
-    from examolintegrators import HybridLDMCIntegratorEngine as HLDMC
-    IE = basisSim.integratorEngine
-    if isinstance(IE, HLDMC):
-        #Convert to the true number of steps 
-        nsteps = nsteps/IE.stepsPerMC
-integrator = basisSim.integrator
-if basisSim.verbose:
-    print "Integrating..."
-#pdb.set_trace()
-if profile:
-    sys.stdout.flush()
+def timeSteps(sim, steps):
     pr = cProfile.Profile()
     pr.enable()
-    basisSim.integrator.step(nsteps)
+    sim.integrator.step(steps)
     pr.disable()
     s = StringIO.StringIO()
     sortby = 'cumulative'
     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
     ps.print_stats()
     print s.getvalue()
-pdb.set_trace()
-Es=checkEnergies(basisSim)
-if profile:
+    return
+
+def timeEnergy(sim):
     pr = cProfile.Profile()
     pr.enable()
     basisSim.computeBasisEnergy()
@@ -269,43 +173,152 @@ if profile:
     ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
     ps.print_stats()
     print s.getvalue()
-pdb.set_trace()
-#cProfile.run(basisSim.computeBasisEnergy())
-basisSim.computeBasisEnergy()
-randLam = np.random.random(Ni*Nj)
-pdb.set_trace()
-basisSim.assignLambda(randLam)
-basisSim.computeBasisEnergy()
-#randLam = np.zeros(Ni*Nj)
-#randLam[8:-1:10] = 1
-pdb.set_trace()
-randLam = np.ones(Ni*Nj) * 0.9
-assignLambda(context, randLam, Ni, Nj, skipij2=False)
-checkLam = getLambda(context, Ni, Nj)
-platformMode = platform.getPropertyValue(context, 'OpenCLPrecision')
-platform.setPropertyValue(context, 'OpenCLPrecision', 'double')
-pdb.set_trace()
-computeBasisEnergy(context, Ni, Nj)
-mm.Platform.setPropertyValue(context, 'OpenCLPrecision', platformMode)
-print context.getState(getEnergy=True, groups=1).getPotentialEnergy()
-print context.getState(getEnergy=True).getPotentialEnergy()
-#Minimize positions
-mm.LocalEnergyMinimizer.minimize(context, 1.0 * unit.kilojoules_per_mole / unit.nanometers, 0)
 
-#Test energy Evaluation
-computeBasisEnergy(context, Ni, Nj)
-pdb.set_trace()
+def initilizeSimulation(protocol=None):
+    '''
+    Create the simulation object
+    '''
+    if DEBUG_MODE:
+        #DEBUG: 3 sites, 1 R-group per site (hydrogens)
+        Ni = 3 #Number of ith groups
+        Nj = 1 #Number of jth groups
+    else:
+        Ni = 3 #Number of ith groups
+        Nj = 10 #Number of jth groups
+    basisSim = basisExamol(Ni, Nj, ff, protocol=protocol)
     
-#Test a step
-integrator.step(10)
+    #Set the positions so all particles are in the box and do no wrap oddly
+    box=basisSim.mainSystem.getDefaultPeriodicBoxVectors()
+    box = np.array([unit.norm(vector.value_in_unit(unit.nanometer)) for vector in box])*unit.nanometer
+    mincoords = np.min(basisSim.mainPositions,axis=0)
+    newPositions = basisSim.mainPositions - mincoords
+    nudgeDistance = (box - newPositions.max(axis=0))/2
+    newPositions += nudgeDistance
+    basisSim.mainPositions = newPositions
+    
+    #Quick code to create the PDB file with all the correct CONNECT entries (visualization)
+    #Atommaps from PDB file
+    #amap = range(1,Noriginal+1) #Base 1
+    #amap.extend(range(Noriginal+1+1, Nnew+Noriginal+1+1)) #Base 1, ter command occupies 1
+    #nC = mainSystem.getNumConstraints()
+    #nB = 0
+    #bondforces = []
+    #for forceidx in xrange(mainSystem.getNumForces()):
+    #    force = mainSystem.getForce(forceidx)
+    #    if isinstance(force, mm.HarmonicBondForce) or isinstance(force, mm.CustomBondForce):
+    #        bondforces.append(force)
+    #        nB += force.getNumBonds()
+    #bondlist = np.zeros([nB+nC, 2], dtype=int)
+    #count = 0
+    #for constraint in xrange(nC):
+    #    atomi, atomj, r0 = mainSystem.getConstraintParameters(constraint)
+    #    bondlist[count,:] = (amap[atomi], amap[atomj])
+    #    count +=1
+    #for force in bondforces:
+    #    for bond in xrange(force.getNumBonds()):
+    #        bondparam = force.getBondParameters(bond)
+    #        atomi, atomj = bondparam[0], bondparam[1]
+    #        bondlist[count,:] = (amap[atomi], amap[atomj])
+    #        count +=1
+    #conline = "CONECT{a1: >5d}{a2: >5d}\n"
+    #output = ''
+    #for bond in xrange(nB+nC):
+    #    output += conline.format(a1=bondlist[bond,0], a2=bondlist[bond,1])
+    #file = open('connects.pdb', 'w')
+    #file.write(output)
+    #file.close()
+    #pdb.set_trace()
+    
+    
+    #DEBUG: Testing built in reporters to see if I need something else
+    #simulation = app.Simulation(mainTopology, mainSystem, integrator, platform)
+    #simulation.context.setPositions(mainPositions)
+    #simulation.context.setVelocitiesToTemperature(equilibriumTemperature)
+    #reporter = app.PDBReporter('trajectory.pdb',1)
+    ##reporter = app.DCDReporter('trajectory.dcd',1)
+    #reporter.report(simulation, simulation.context.getState(getPositions=True,getParameters=True, enforcePeriodicBox=True))
+    #pdb.set_trace()
+    #simulation.minimizeEnergy(1.0 * unit.kilojoules_per_mole / unit.nanometers, 0)
+    #reporter.report(simulation, simulation.context.getState(getPositions=True,getParameters=True, enforcePeriodicBox=True))
+    ##reporter.report(simulation, simulation.context.getState(getPositions=True,getParameters=True))
+    #simulation.reporters.append(reporter)
+    #print simulation.context.getState(getEnergy=True).getPotentialEnergy()
+    #pdb.set_trace()
+    #simulation.step(1)
+    
+    #Test taking a formal step to see if wrapping is handled correctly and if energies go to NaN
+    context = basisSim.buildContext(provideContext=True, thermostat=False, barostat=False)
+    
+    #=== MINIMIZE ENERGIES ===
+    context.setPositions(basisSim.mainPositions)
+    context.setVelocitiesToTemperature(basisSim.temperature)
+    return basisSim
 
-#Sanity Checks
-state = context.getState(getPositions=True,enforcePeriodicBox=True,getEnergy=True)
-#Check energies
-energy = state.getPotentialEnergy()
-print energy
-#Check Positions
-coords = state.getPositions(asNumpy=True)
-print coords
+def execute():
+    basisSim = initilizeSimulation(protocol={'nIterations':4})
+    #context.applyConstraints(1E-6)
+    #Pull the initial energy to allocte the Context__getStateAsLists call for "fair" testing, still looking into why the initial call is slow
+    initialU = basisSim.computeBasisEnergy()
+    basisSim.run()
+    pdb.set_trace()
+    profile = True
+    nsteps = 1000
+    if hasattr(basisSim, "integratorEngine"):
+        from examolintegrators import HybridLDMCIntegratorEngine as HLDMC
+        IE = basisSim.integratorEngine
+        if isinstance(IE, HLDMC):
+            #Convert to the true number of steps 
+            nsteps = nsteps/IE.stepsPerMC
+    integrator = basisSim.integrator
+    if basisSim.verbose:
+        print "Integrating..."
+    #pdb.set_trace()
+    if profile:
+        timeSteps(basisSim, nsteps)
+    pdb.set_trace()
+    Es=checkEnergies(basisSim)
+    if profile:
+        timeEnergy(basisSim)
+    pdb.set_trace()
+    #cProfile.run(basisSim.computeBasisEnergy())
+    basisSim.computeBasisEnergy()
+    randLam = np.random.random(Ni*Nj)
+    pdb.set_trace()
+    basisSim.assignLambda(randLam)
+    basisSim.computeBasisEnergy()
+    #randLam = np.zeros(Ni*Nj)
+    #randLam[8:-1:10] = 1
+    pdb.set_trace()
+    randLam = np.ones(Ni*Nj) * 0.9
+    assignLambda(context, randLam, Ni, Nj, skipij2=False)
+    checkLam = getLambda(context, Ni, Nj)
+    platformMode = platform.getPropertyValue(context, 'OpenCLPrecision')
+    platform.setPropertyValue(context, 'OpenCLPrecision', 'double')
+    pdb.set_trace()
+    computeBasisEnergy(context, Ni, Nj)
+    mm.Platform.setPropertyValue(context, 'OpenCLPrecision', platformMode)
+    print context.getState(getEnergy=True, groups=1).getPotentialEnergy()
+    print context.getState(getEnergy=True).getPotentialEnergy()
+    #Minimize positions
+    mm.LocalEnergyMinimizer.minimize(context, 1.0 * unit.kilojoules_per_mole / unit.nanometers, 0)
+    
+    #Test energy Evaluation
+    computeBasisEnergy(context, Ni, Nj)
+    pdb.set_trace()
+        
+    #Test a step
+    integrator.step(10)
+    
+    #Sanity Checks
+    state = context.getState(getPositions=True,enforcePeriodicBox=True,getEnergy=True)
+    #Check energies
+    energy = state.getPotentialEnergy()
+    print energy
+    #Check Positions
+    coords = state.getPositions(asNumpy=True)
+    print coords
+    
+    pdb.set_trace()
 
-pdb.set_trace()
+if __name__ == "__main__":
+    execute()

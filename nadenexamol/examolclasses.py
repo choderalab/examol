@@ -9,6 +9,9 @@ import itertools
 from scipy.interpolate import UnivariateSpline
 from examolhelpers import *
 from examolintegrators import *
+import netCDF4 as netcdf
+import time
+import datetime
 import cProfile
 import pstats
 '''
@@ -16,7 +19,7 @@ This module houses all the custom force functions used by the main exmaol script
 I split this off to reduce the clutter in the main examol script.
 '''
 
-
+kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
 
 def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
     '''
@@ -130,7 +133,7 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         #=== Electrostatics ===
         # This block commented out until I figure out how to do long range PME without calling updateParametersInContext(), Switched to reaction field below
         #err_tol = nonbonded_force.getEwaldErrorTolerance()
-        #rcutoff = nonbonded_force.getCutoffDistance() / units.nanometer #getCutoffDistance Returns a unit object, convert to OpenMM default (nm)
+        #rcutoff = nonbonded_force.getCutoffDistance() / unit.nanometer #getCutoffDistance Returns a unit object, convert to OpenMM default (nm)
         #alpha = numpy.sqrt(-numpy.log(2*err_tol))/rcutoff #NOTE: OpenMM manual is wrong here
         #energy_expression = "alchEdirect-(Edirect * eitheralch);" #Correction for the alchemical1=0 alchemical2=0 case)
         #energy_expression += "Edirect = ({0:f} * (switchPME*alchemical1 + 1 -alchemical1) * charge1 * (switchPME*alchemical2 + 1 -alchemical2) * charge2 * erfc({1:f} * r)/r);".format(ONE_4PI_EPS0, alpha) #The extra bits correct for alchemical1 and alhemical being on
@@ -239,7 +242,7 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         #=== Electrostatics ===
         # This block commented out until I figure out how to do long range PME without calling updateParametersInContext(), Switched to reaction field below
         #err_tol = nonbonded_force.getEwaldErrorTolerance()
-        #rcutoff = nonbonded_force.getCutoffDistance() / units.nanometer #getCutoffDistance Returns a unit object, convert to OpenMM default (nm)
+        #rcutoff = nonbonded_force.getCutoffDistance() / unit.nanometer #getCutoffDistance Returns a unit object, convert to OpenMM default (nm)
         #alpha = numpy.sqrt(-numpy.log(2*err_tol))/rcutoff #NOTE: OpenMM manual is wrong here
         #energy_expression = "alchEdirect-(Edirect * eitheralch);" #Correction for the alchemical1=0 alchemical2=0 case)
         #energy_expression += "Edirect = ({0:f} * (switchPME*alchemical1 + 1 -alchemical1) * charge1 * (switchPME*alchemical2 + 1 -alchemical2) * charge2 * erfc({1:f} * r)/r);".format(ONE_4PI_EPS0, alpha) #The extra bits correct for alchemical1 and alhemical being on
@@ -934,11 +937,13 @@ class basisExamol(object):
         self.context.setState(state)
         return
 
-    def getLambda(self):
+    def getLambda(self, flat=False):
         lamVector = np.zeros([self.Ni,self.Nj])
         for i in xrange(self.Ni):
             for j in xrange(self.Nj):
                 lamVector[i,j] = self.context.getParameter('lam{0:s}x{1:s}B'.format(str(i),str(j)))
+        if flat:
+            lamVector = lamVector.flatten()
         return lamVector
     
     def groupFlag(self, listin):
@@ -980,7 +985,7 @@ class basisExamol(object):
             #self.integrator = mm.LangevinIntegrator(self.temperature, 1.0/unit.picosecond, self.timestep)
             #thermostat=False
             ##
-            self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep)
+            self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep, stepsPerMC = self.stepsPerMC)
             self.integrator = self.integratorEngine.integrator
             #--
             #self.integrator = mm.VerletIntegrator(self.timestep)
@@ -1053,23 +1058,6 @@ class basisExamol(object):
             lams.update(basisMap(lams['B'],protocol))
         return lams
     
-    def assignSingleLambda(self, i, j, lamValue, i2=None, j2=None):
-        '''
-        Function which assigns only 1 lambda (and its linked parameters) for speed
-        if i2 and j2 are passed in, then it assigns a cross term (and not i,j + i2,j2)
-        NOTE: This functions differently than assignLambda since a single value is passed in
-        '''
-        if not isinstance(lamVector, np.ndaray):
-            lamValue = np.array(lamValue).reshape([1])
-        if isinstance(lamVector.flat[0],dict):
-            method = 'directDict'
-        elif (lamVector.dtype.fields is not None):
-            method = 'structuredNumpyArray'
-        else:
-            method = 'bondOnly'
-        return
-        
-
     def assignLambda(self, lamVector):
         '''
         Set the switch values inside the context. Done by either passing in a vector of lambda values, or dictionaries housing each of the switch values
@@ -1119,8 +1107,6 @@ class basisExamol(object):
         if groups is None:
             groups = -1
         return self.context.getState(enforcePeriodicBox=True,getEnergy=True,groups=groups).getPotentialEnergy()
-
-
 
     def computeArbitraryAlchemicalEnergy(self, lamVector=None, basis=None, derivative=False, provideHValues=False):
         '''
@@ -1266,6 +1252,7 @@ class basisExamol(object):
         returns['harmonicBias'] = harmonicBias
         returns['freeEnergyBias'] = freeEnergyBias
         returns['unaffectedPotential'] = unaffectedPotential
+        returns['totalPotential'] = currentPotential
 
         #Ensure total energy = bais function energy. This is a debug sanity check
         basisPotential = self.computeArbitraryAlchemicalEnergy(lamVector=currentLambda, basis=returns)['potential']
@@ -1286,48 +1273,246 @@ class basisExamol(object):
     def _countTotalBasisFunctions(self):
         #Utility function to count up the total number of basis given the current protocols
         basisCount = 0
+        standardBasisCount = 0 
+        crossBasisCount = 0
         for i in xrange(self.Ni):
             for j in xrange(self.Nj):
                 #Count the bonded basis
                 basisCount += 1
+                standardBasisCount += 1
                 for uniqueSetCount in xrange(self.standardNumBasis):
                     #Add in the unique stages
                     basisCount += 1
+                    standardBasisCount += 1
                 #Loop through i2/j2 interactions
                 for i2 in xrange(i+1,self.Ni): 
                     for j2 in xrange(self.Nj): 
                         for uniqueSetCount2 in xrange(self.crossNumBasis):
                             #Add in the cross interactions unique counts
                             basisCount += 1
+                            crossBasisCount += 1
         self.totalBasis = basisCount
+        self.standardBasisCount = standardBasisCount
+        self.crossBasisCount = crossBasisCount
         return
     
-    def unravelBasis(self, array):
-        #Helper function to unravel a flat, non-zero array into a dictionary of arrays format of type {'standard':[Ni,Nj,standardNumBasis+1], 'cross':[Ni,Nj,Ni,Nj,crossNumBasis]}
-        raise Exception("Not ready yet")
-        basisCount = 0
+    def expandBasis(self, flatBasis):
+        #Helper function to unravel a flat, non-zero array into the the basis array indexed by i, j, i2, and j2
+        #Accepts either flatStandard or flatCross and determines based on size
+        #Consider moving this to helpers
+        counter = 0
         #Strip units
         hasUnit = False
-        if isinstance(array, unit.Quantity):
+        if isinstance(flatBasis, unit.Quantity):
             hasUnit = True
-            arrUnit = array.unit
-            array /= arrUnit
-        standard = np.zeros([self.Ni,self.Nj,self.standardNumBasis+1])
-        cross = np.zeros([self.Ni,self.Nj,self.Ni,self.Nj,self.standardCross])
-        for i in xrange(self.Ni):
-            for j in xrange(self.Nj):
-                standard[i,j,-1] = NOTREADY 
-                basisCount += 1
-                for uniqueSetCount in xrange(self.standardNumBasis):
-                    #Add in the unique stages
-                    basisCount += 1
-                #Loop through i2/j2 interactions
-                for i2 in xrange(i+1,self.Ni): 
-                    for j2 in xrange(self.Nj): 
-                        for uniqueSetCount2 in xrange(self.crossNumBasis):
-                            #Add in the cross interactions unique counts
-                            basisCount += 1
-        pass
+            basisUnit = flatBasis.unit
+            flatBasis /= basisUnit
+        if flatBasis.size == self.standardBasisCount:
+            output = flatBasis.reshape(self.Ni, self.Nj, self.standardNumBasis + 1)
+        elif flatBasis.size == self.crossBasisCount:
+            output = np.zeros([self.Ni,self.Nj,self.Ni,self.Nj,self.crossNumBasis])
+            for i in xrange(self.Ni):
+                for j in xrange(self.Nj):
+                    for i2 in xrange(i+1,self.Ni): 
+                        for j2 in xrange(self.Nj): 
+                            for uniqueSetCount2 in xrange(self.crossNumBasis):
+                                output[i,j,i2,j2,uniqueSetCount2] = flatBasis[counter]
+                                counter += 1
+        if hasUnit:
+            output *= basisUnit
+        return output
+
+    def flattenBasis(self, basis):
+        '''
+        Remove all the excess zeros from the cross basis and return a flat array
+        Consider moving this to helpers
+        '''
+        hasUnit = False
+        if isinstance(basis, unit.Quantity):
+            hasUnit = True
+            basisUnit = basis.unit
+            basis /= basisUnit
+        if basis.ndim == 3:
+            output = basis.flatten()
+        elif basis.ndim == 5:
+            output = np.zeros([self.crossBasisCount])
+            counter = 0
+            for i in xrange(self.Ni):
+                for j in xrange(self.Nj):
+                    for i2 in xrange(i+1,self.Ni): 
+                        for j2 in xrange(self.Nj): 
+                            for uniqueSetCount2 in xrange(self.crossNumBasis):
+                                output[counter] = basis[i,j,i2,j2,uniqueSetCount2]
+                                counter += 1
+        if hasUnit:
+            output *= basisUnit
+        return output
+    
+    def _initilizeNetCDF(self):
+        '''
+        Create the NetCDF file to store and operate on
+ 
+        '''
+        ncfile = netcdf.Dataset(self.filename, 'w', version='NETCDF4')
+
+        # Create dimensions.
+        ncfile.createDimension('iteration', 0) # unlimited number of iterations
+        ncfile.createDimension('particle', self.nParticles) # number of atoms in system
+        ncfile.createDimension('spatial', 3) # number of spatial dimensions
+        ncfile.createDimension('lambda', self.Ni*self.Nj) # number of alchemical/lambda Dimentions
+        ncfile.createDimension('standard', self.standardBasisCount) # number of standard basis functions
+        ncfile.createDimension('cross', self.crossBasisCount) # number of cross functions
+        ncfile.createDimension('biases', 2) # Number of Biases, Harmonic and Free Energy
+        ncfile.createDimension('iterableLen', 0) # arbitrary iterable length
+        ncfile.createDimension('dict', 2) # Dictionary variable, stores key:value
+
+        # Create variables.
+        ncvar_positions = ncfile.createVariable('positions', 'f', ('iteration','particle','spatial'))
+        ncvar_state     = ncfile.createVariable('state', 'f', ('iteration','lambda'))
+        ncgrp_energies  = ncfile.createGroup('energies') #Energies group
+        ncvar_energy    = ncgrp_energies.createVariable('energy', 'f', ('iteration'))
+        ncvar_unaffected= ncgrp_energies.createVariable('unaffected', 'f', ('iteration'))
+        ncvar_bias      = ncgrp_energies.createVariable('bias', 'f', ('iteration', 'biases'))
+        ncvar_standard  = ncgrp_energies.createVariable('standardBasis', 'f', ('iteration', 'standard'))
+        ncvar_cross     = ncgrp_energies.createVariable('crossBasis', 'f', ('iteration', 'cross'))
+        ncvar_box_vectors = ncfile.createVariable('box_vectors', 'f', ('iteration','spatial','spatial'))
+        ncvar_volumes  = ncfile.createVariable('volumes', 'f', ('iteration'))
+
+        # Define units for variables.
+        setattr(ncvar_positions, 'units', 'nm')
+        setattr(ncvar_state,     'units', 'none')
+        setattr(ncvar_energy,    'units', 'kT')
+        setattr(ncvar_unaffected,'units', 'kT')
+        setattr(ncvar_bias,      'units', 'kT')
+        setattr(ncvar_standard,  'units', 'kT')
+        setattr(ncvar_cross,     'units', 'kT')
+        setattr(ncvar_box_vectors, 'units', 'nm')
+        setattr(ncvar_volumes, 'units', 'nm**3')
+
+        # Define long (human-readable) names for variables.
+        setattr(ncvar_positions, "long_name", "positions[iteration][particle][spatial] is position of coordinate 'spatial' of atom 'particle' for iteration 'iteration'.")
+        setattr(ncvar_state,     "long_name", "states[iteration][lambda] is the value of alchemical variable 'lambda' of iteration 'iteration'.")
+        setattr(ncvar_energy,    "long_name", "energies[iteration] is the reduced (unitless) energy of the configuration from iteration 'iteration'.")
+        setattr(ncvar_unaffected,"long_name", "unaffected[iteration] is the reduced (unitless) energy of the non-alchemical energy of configuration from iteration 'iteration'.")
+        setattr(ncvar_standard,  "long_name", "standardBasis[iteration][standard] is the reduced (unitless) energy of number of alchemical/non-alchemical energy of 'standardBasis' from configuration of iteration 'iteration'.")
+        setattr(ncvar_cross,     "long_name", "crossBasis[iteration][cross] is the reduced (unitless) energy of number of alchemical/alchemical energy of 'crossBasis' from configuration of iteration 'iteration'.")
+        setattr(ncvar_bias,      "long_name", "bias[iteration][biases] is the reduced (unitless) energy of the [HarmonicBias, FreeEnergyBias] from the current state of iteration 'iteration'.")
+        setattr(ncvar_box_vectors, "long_name", "box_vectors[iteration][i][j] is dimension j of box vector i from iteration 'iteration-1'.")
+        setattr(ncvar_volumes, "long_name", "volume[iteration] is the box volume for replica 'replica' from iteration 'iteration-1'.")
+
+        # Create timestamp variable.
+        ncvar_timestamp = ncfile.createVariable('timestamp', str, ('iteration',))
+
+        # Create group for performance statistics.
+        ncgrp_timings = ncfile.createGroup('timings')
+        ncvar_iteration_time = ncgrp_timings.createVariable('iteration', 'f', ('iteration',)) # total iteration time (seconds)
+ 
+        #MC statistics, accept/reject rates of the 
+        ncgrp_MC = ncfile.createGroup('MCStats')
+        ncgrp_MC.createVariable('naccept', int, ('iteration',))
+        ncgrp_MC.createVariable('ntrials', int, ('iteration',))
+ 
+        #Create group of constants
+        ncgrp_proto = ncfile.createGroup('protocols')
+        for protoName in self.protocol.keys():
+            #Get protocol
+            protocol = self.protocol[protoName]
+            protoUnit = None
+            if isinstance(protocol,  unit.Quantity):
+                protoUnit = protocol.unit
+                protocol  /= protoUnit
+            protoType = type(protocol)
+            #Handle Types
+            if protoType is type(None): #Have to type(None) since <type 'NoneType'> != None
+                continue #No need to write if None Type
+            elif protoType is bool:
+                protocol = int(protocol)
+                ncvar = ncgrp_proto.createVariable(protoName, type(protocol))
+                ncvar.assignValue(protocol)
+            elif protoType is dict:
+                ncvar = ncgrp_proto.createVariable(protoName, str, ('iterableLen','dict'))
+                for i, key in enumerate(protocol.keys()):
+                    ncvar[i,0] = key
+                    ncvar[i,1] = protocol[key]
+            elif protoType is list:
+                ncvar = ncgrp_proto.createVariable(protoName, str, ('iterableLen',))
+                for i, element in enumerate(protocol):
+                    ncvar[i] = element
+            else:
+                try:
+                    ncvar = ncgrp_proto.createVariable(protoName, protoType)
+                except:
+                    print(protoType)
+                    pdb.set_trace()
+            if protoUnit:
+                setattr(ncvar, "units", str(protoUnit))
+
+        self.ncfile = ncfile
+        return
+
+    def writeIteration(self):
+        #Get State
+        state = self.context.getState(getPositions=True, getEnergy=True) 
+  
+        #Store Positions
+        self.ncfile.variables['positions'][self.iteration,:,:] = state.getPositions(asNumpy=True)/unit.nanometer
+  
+        #Store Alchemical State
+        self.ncfile.variables['state'][self.iteration,:] = self.getLambda(flat=True)
+ 
+        #Store Energies
+        energies = self.computeBasisEnergy()
+        self.ncfile.groups['energies'].variables['energy'][self.iteration] = energies['totalPotential']/self.kT
+        self.ncfile.groups['energies'].variables['unaffected'][self.iteration] = energies['unaffectedPotential']/self.kT
+        self.ncfile.groups['energies'].variables['bias'][self.iteration, 0] = energies['harmonicBias']/self.kT
+        self.ncfile.groups['energies'].variables['bias'][self.iteration, 1] = energies['freeEnergyBias']/self.kT
+        self.ncfile.groups['energies'].variables['standardBasis'][self.iteration, :] = self.flattenBasis(energies['standardBasis']/self.kT)
+        self.ncfile.groups['energies'].variables['crossBasis'][self.iteration, :] = self.flattenBasis(energies['crossBasis']/self.kT)
+
+        #Store box volumes:
+        self.ncfile.variables['box_vectors'][self.iteration,:,:] = state.getPeriodicBoxVectors(asNumpy=True)/unit.nanometer
+        self.ncfile.variables['volumes'][self.iteration] = state.getPeriodicBoxVolume()/unit.nanometer**3
+
+        #Store integrator values
+        self.ncfile.groups['MCStats'].variables['naccept'][self.iteration] = self.integrator.getGlobalVariableByName("naccept")
+        self.ncfile.groups['MCStats'].variables['ntrials'][self.iteration] = self.integrator.getGlobalVariableByName("ntrials")
+
+        return
+
+    def run(self):
+        if self.context is None:
+            print('Cant run a simulation with out a context!')
+            raise(Exception)
+
+        run_start_time = time.time()
+        run_start_iteration = self.iteration
+        while self.iteration < self.nIterations:
+            if self.verbose: 
+                print "\nIteration {0:d} / {1:d}".format(self.iteration+1, self.nIterations)
+            #Timing drawn from YANK (github.com/choderalab/yank)
+            initial_time = time.time()
+
+            #Timestep
+            self.integrator.step(self.protocol['stepsPerIteration'])
+            
+            #Store information
+            self.writeIteration()
+
+            #Increment iteration
+            self.iteration += 1
+
+            #Final time
+            final_time = time.time()
+            elapsed_time = final_time - initial_time
+            estimated_time_remaining = (final_time - run_start_time) / (self.iteration - run_start_iteration) * (self.nIterations - self.iteration)
+            estimated_total_time = (final_time - run_start_time) / (self.iteration - run_start_iteration) * (self.nIterations)
+            estimated_finish_time = final_time + estimated_time_remaining
+            if self.verbose:
+                print "Iteration took {0:.3f} s.".format(elapsed_time)
+                print "Estimated completion in {0:s}, at {1:s} (consuming total wall clock time {2:s}).".format(str(datetime.timedelta(seconds=estimated_time_remaining)), time.ctime(estimated_finish_time), str(datetime.timedelta(seconds=estimated_total_time)))
+
+        self.ncfile.close()
+        return
 
     def _setProtocol(self, protocol):
         #Set defaults:
@@ -1342,6 +1527,9 @@ class basisExamol(object):
         defaultProtocols['crossSwitches'] = {'R':'linear'}
         defaultProtocols['skipContextUnits'] = True
         defaultProtocols['verbose'] = True
+        defaultProtocols['stepsPerMC'] = 10
+        defaultProtocols['stepsPerIteration'] = 100 #makes 1ps per write out
+        defaultProtocols['nIterations'] = 10000 # Makes 10ns at default values
         if protocol is None:
             self.protocol = defaultProtocols
         else:
@@ -1349,9 +1537,9 @@ class basisExamol(object):
             try:
                 for key in protocol.keys():
                     self.protocol[key] = protocol[key]
-                for key in defaultProtocol.keys():
+                for key in defaultProtocols.keys():
                     if key not in self.protocol.keys():
-                        self.protocol[key] = defaultProtocol[key]
+                        self.protocol[key] = defaultProtocols[key]
             except:
                 errorMsg = "Protocol needs to be a dictionary. Valid keys are: "
                 for key in defaultProtocols.keys():
@@ -1361,10 +1549,12 @@ class basisExamol(object):
                 self.protocol = defaultProtocols
         return
 
-    def __init__(self, Ni, Nj, ff, protocol=None):
+    def __init__(self, Ni, Nj, ff, protocol=None, resume=False, filename='examol.nc', systemname='examolsystem.nc'):
         self.Ni = Ni
         self.Nj = Nj
         self.ff = ff
+        self.filename = filename
+        self.systemname = systemname
         self._setProtocol(protocol)
         #H_lambda switches
         self.standardH = basisSwitches(protocol=self.protocol['standardSwitches'])
@@ -1383,9 +1573,11 @@ class basisExamol(object):
         self._countTotalBasisFunctions()
         #Set some more easily accessed common variables
         self.temperature = self.protocol['temperature']
+        self.kT = kB * self.temperature
         self.pressure = self.protocol['pressure']
         self.timestep = self.protocol['timestep']
         self.verbose = self.protocol['verbose']
+        self.stepsPerMC = self.protocol['stepsPerMC']
         #Load the core, we wont be using it in base form for long
         coreSystem, self.corecoords = self.loadpdb('pdbfiles/core/corec')
         self.corePositions = self.corecoords.getPositions(asNumpy=True) #Positions of core atoms (used for alignment)
@@ -1408,14 +1600,18 @@ class basisExamol(object):
         self._addSolvent()
         #Set up the Nonbonded Forces
         self._buildNonbonded()
+        self.nParticles = self.mainSystem.getNumParticles()
         #Set up bias forces
         self._buildBiasForces()
-        
-        #Initilize integrator, barostat, platform, context
+        #Set the iterations:
+        self.iteration = 0
+        self.nIterations = self.protocol['nIterations']
+        #Initilize objects
         self.barostat = None
         self.integrator = None
         self.context = None
         self.platform = None
+        self._initilizeNetCDF()
         
         return
 

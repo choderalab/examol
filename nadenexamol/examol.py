@@ -174,7 +174,7 @@ def timeEnergy(sim):
     ps.print_stats()
     print s.getvalue()
 
-def initilizeSimulation(protocol=None):
+def initilizeSimulation(**kwargs):
     '''
     Create the simulation object
     '''
@@ -185,16 +185,17 @@ def initilizeSimulation(protocol=None):
     else:
         Ni = 3 #Number of ith groups
         Nj = 10 #Number of jth groups
-    basisSim = basisExamol(Ni, Nj, ff, protocol=protocol)
+    basisSim = basisExamol(Ni, Nj, ff, **kwargs)
     
-    #Set the positions so all particles are in the box and do no wrap oddly
-    box=basisSim.mainSystem.getDefaultPeriodicBoxVectors()
-    box = np.array([unit.norm(vector.value_in_unit(unit.nanometer)) for vector in box])*unit.nanometer
-    mincoords = np.min(basisSim.mainPositions,axis=0)
-    newPositions = basisSim.mainPositions - mincoords
-    nudgeDistance = (box - newPositions.max(axis=0))/2
-    newPositions += nudgeDistance
-    basisSim.mainPositions = newPositions
+    if not basisSim.resume:
+        #Set the positions so all particles are in the box and do no wrap oddly
+        box=basisSim.mainSystem.getDefaultPeriodicBoxVectors()
+        box = np.array([unit.norm(vector.value_in_unit(unit.nanometer)) for vector in box])*unit.nanometer
+        mincoords = np.min(basisSim.mainPositions,axis=0)
+        newPositions = basisSim.mainPositions - mincoords
+        nudgeDistance = (box - newPositions.max(axis=0))/2
+        newPositions += nudgeDistance
+        basisSim.mainPositions = newPositions
     
     #Quick code to create the PDB file with all the correct CONNECT entries (visualization)
     #Atommaps from PDB file
@@ -247,78 +248,25 @@ def initilizeSimulation(protocol=None):
     #simulation.step(1)
     
     #Test taking a formal step to see if wrapping is handled correctly and if energies go to NaN
-    context = basisSim.buildContext(provideContext=True, thermostat=False, barostat=False)
+    context = basisSim.context
     
     #=== MINIMIZE ENERGIES ===
-    context.setPositions(basisSim.mainPositions)
     context.setVelocitiesToTemperature(basisSim.temperature)
     return basisSim
 
 def execute():
-    basisSim = initilizeSimulation(protocol={'nIterations':4})
+    if DEBUG_MODE:
+        filename = 'examoldebug.nc'
+        systemname = 'examoldebugsystem.xml'
+    else:
+        filename = 'examol.nc'
+        systemname = 'examolsystem.xml'
+    basisSim = initilizeSimulation(filename=filename, equilibrate=True, systemname=systemname, protocol={'nIterations':1000, 'stepsPerIteration':1000})
+    #basisSim = initilizeSimulation(filename=filename, systemname=systemname, protocol={'nIterations':4})
     #context.applyConstraints(1E-6)
     #Pull the initial energy to allocte the Context__getStateAsLists call for "fair" testing, still looking into why the initial call is slow
     initialU = basisSim.computeBasisEnergy()
     basisSim.run()
-    pdb.set_trace()
-    profile = True
-    nsteps = 1000
-    if hasattr(basisSim, "integratorEngine"):
-        from examolintegrators import HybridLDMCIntegratorEngine as HLDMC
-        IE = basisSim.integratorEngine
-        if isinstance(IE, HLDMC):
-            #Convert to the true number of steps 
-            nsteps = nsteps/IE.stepsPerMC
-    integrator = basisSim.integrator
-    if basisSim.verbose:
-        print "Integrating..."
-    #pdb.set_trace()
-    if profile:
-        timeSteps(basisSim, nsteps)
-    pdb.set_trace()
-    Es=checkEnergies(basisSim)
-    if profile:
-        timeEnergy(basisSim)
-    pdb.set_trace()
-    #cProfile.run(basisSim.computeBasisEnergy())
-    basisSim.computeBasisEnergy()
-    randLam = np.random.random(Ni*Nj)
-    pdb.set_trace()
-    basisSim.assignLambda(randLam)
-    basisSim.computeBasisEnergy()
-    #randLam = np.zeros(Ni*Nj)
-    #randLam[8:-1:10] = 1
-    pdb.set_trace()
-    randLam = np.ones(Ni*Nj) * 0.9
-    assignLambda(context, randLam, Ni, Nj, skipij2=False)
-    checkLam = getLambda(context, Ni, Nj)
-    platformMode = platform.getPropertyValue(context, 'OpenCLPrecision')
-    platform.setPropertyValue(context, 'OpenCLPrecision', 'double')
-    pdb.set_trace()
-    computeBasisEnergy(context, Ni, Nj)
-    mm.Platform.setPropertyValue(context, 'OpenCLPrecision', platformMode)
-    print context.getState(getEnergy=True, groups=1).getPotentialEnergy()
-    print context.getState(getEnergy=True).getPotentialEnergy()
-    #Minimize positions
-    mm.LocalEnergyMinimizer.minimize(context, 1.0 * unit.kilojoules_per_mole / unit.nanometers, 0)
-    
-    #Test energy Evaluation
-    computeBasisEnergy(context, Ni, Nj)
-    pdb.set_trace()
-        
-    #Test a step
-    integrator.step(10)
-    
-    #Sanity Checks
-    state = context.getState(getPositions=True,enforcePeriodicBox=True,getEnergy=True)
-    #Check energies
-    energy = state.getPotentialEnergy()
-    print energy
-    #Check Positions
-    coords = state.getPositions(asNumpy=True)
-    print coords
-    
-    pdb.set_trace()
 
 if __name__ == "__main__":
     execute()

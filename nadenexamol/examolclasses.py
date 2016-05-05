@@ -15,12 +15,18 @@ import time
 import datetime
 import cProfile
 import pstats
+import pickle
 '''
 This module houses all the custom force functions used by the main exmaol script.
 I split this off to reduce the clutter in the main examol script.
 '''
 
 kB = unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
+
+try:
+    savez = np.savez_compressed
+except:
+    savez = np.savez
 
 def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
     '''
@@ -282,7 +288,7 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
     custom_nonbonded_force.addGlobalParameter("singleSwitchMode", 0)
     return custom_nonbonded_force
 
-def biasDerivative(i, j, Ni, Nj, lamMin = 0.3,  K = 1.0):
+def biasDerivative(i, j, Ni, Nj, lamMin = 0.3,  K = 50.0):
     '''
     Bias derivative in the lambda dims. Flat bottom conditional harmonic restraint
     
@@ -320,7 +326,7 @@ def biasDerivative(i, j, Ni, Nj, lamMin = 0.3,  K = 1.0):
         custom_external_force.addGlobalParameter(var, 1)
     return custom_external_force
 
-def biasPotential(Ni, Nj, lamMin = 0.3 , K = 1.0):
+def biasPotential(Ni, Nj, lamMin = 0.3 , K = 50.0):
     '''
     Bias derivative in the lambda dims. Flat bottom conditional harmonic restraint
     
@@ -467,9 +473,10 @@ class basisExamol(object):
     def _addAngleForceWithCustom(self, RForce, i, j):
         #Copy angle forces from the RForce to the mainAngleForce. Uses info from RAtomNubmers to map the unique angles in the RSystems to the mainSystem. Creates a custom angle force for bonds to the core where R attaches
         lamExpression = 'lam{0:s}x{1:s}B'.format(str(i), str(j))
-        energyExpression = '0.5*%s*k*(theta-theta0)^2;' % lamExpression
+        energyExpression = '((1-derivMode)*%s + derivMode*%s)*0.5*k*(theta-theta0)^2;' % (lamExpression, '1')
         customAngleForce = mm.CustomAngleForce(energyExpression)
         customAngleForce.addGlobalParameter(lamExpression, 1)
+        customAngleForce.addGlobalParameter('derivMode', 0)
         customAngleForce.addPerAngleParameter('theta0')
         customAngleForce.addPerAngleParameter('k')
         nRAngle = RForce.getNumAngles()
@@ -488,9 +495,10 @@ class basisExamol(object):
     def _addTorsionForceWithCustom(self, RForce, i, j):
         #Copy torsion forces from the RForce to the mainTorsionForce. Uses info from RAtomNubmers to map the unique torsions in the RSystems to the mainSystem. Creates a custom torsion force for bonds to the core where R attaches
         lamExpression = 'lam{0:s}x{1:s}B'.format(str(i), str(j))
-        energyExpression = '%s*k*(1+cos(n*theta-theta0));' % lamExpression
+        energyExpression = '((1-derivMode)*%s + derivMode*%s)*k*(1+cos(n*theta-theta0));' % (lamExpression, '1')
         customTorsionForce = mm.CustomTorsionForce(energyExpression)
         customTorsionForce.addGlobalParameter(lamExpression, 1)
+        customTorsionForce.addGlobalParameter('derivMode', 0)
         customTorsionForce.addPerTorsionParameter('n')
         customTorsionForce.addPerTorsionParameter('theta0')
         customTorsionForce.addPerTorsionParameter('k')
@@ -916,7 +924,7 @@ class basisExamol(object):
             print "Cannot update Free Energies with no Context!"
             raise(Exception)
         #Extract all the parameters/values needed to rebuild the context.
-        state = self.context.getState(getPositions = True, getVelocities = True, getForces = True, getEnergy = True, getParameters = True, enforcePeriodicBox = True)
+        state = self.context.getState(getPositions = True, getVelocities = True, getForces = True, getEnergy = True, getParameters = True, enforcePeriodicBox=False)
         freeEnergyUTabs = self.freeEnergyTabs['potential']
         freeEnergyFTabs = self.freeEnergyTabs['force']
         #Determine spline sizes
@@ -982,13 +990,21 @@ class basisExamol(object):
         if self.context is not None:
             print "Cannot make new integrator with existing context!"
         else:
+            thermostat = True
             if self.equilibrate:
-                self.integrator = mm.LangevinIntegrator(self.temperature, 1.0/unit.picosecond, self.timestep)
-                thermostat=False
+                if self.pressure is not None and False:
+                    self.integrator = VelocityVerletIntegrator(self.timestep)
+                else:
+                    self.integrator = mm.LangevinIntegrator(self.temperature, 1.0/unit.picosecond, self.timestep)
+                    thermostat=False
             else:
-                self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep, stepsPerMC = self.stepsPerMC)
+                if self.pressure is not None:
+                    print("The Hybrid LDMC Integrator is coded to to NVT simulations, not NPT!")
+                    raise(Exception)
+                self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep, stepsPerMCInner = self.stepsPerMCInner, stepsPerMCOuter = self.stepsPerMCOuter)
                 self.integrator = self.integratorEngine.integrator
-                thermostat = True
+                #hybrid LDMC runs NVE MD with NVT sampling at MC step
+                thermostat = False
             #--
             #self.integrator = mm.VerletIntegrator(self.timestep)
             #--
@@ -1003,7 +1019,7 @@ class basisExamol(object):
         if self.context is not None:
             print "Cannot make new barostat with existing context!"
         else:
-            self.barostat = mm.MonteCarloBarostat(self.pressure, self.temperature, 1)
+            self.barostat = mm.MonteCarloBarostat(self.pressure, self.temperature, 100)
             self.mainSystem.addForce(self.barostat)
         return
 
@@ -1043,15 +1059,23 @@ class basisExamol(object):
         except:
             pass
         #Assign positions
-        self.context.setPositions(self.mainPositions)
+        #Note: BOX MUST BE SET FIRST!!!
         self.context.setPeriodicBoxVectors(self.boxVectors[0,:], self.boxVectors[1,:], self.boxVectors[2,:])
-        if not self.resume:
+        self.context.setPositions(self.mainPositions)
+        #DEBUG
+        #self.context.setPositions(self.context.getState(getPositions=True,enforcePeriodicBox=True).getPositions())
+        if not self.coordsLoaded:
             if self.verbose: print("Minimizing Context")
             #mm.LocalEnergyMinimizer.minimize(self.context, 1.0 * unit.kilojoules_per_mole / unit.nanometers, 0)
             self.mainPositions = self.context.getState(getPositions=True).getPositions(asNumpy=True)
         else:
             #Reinitilize to lambda
-            self.assignLambda(self.state)
+            try:
+                self.assignLambda(self.state)
+            except:
+                print("WARNING! No alchemical state in loaded file! Assuming fully coupled!")
+                self.state = np.ones([self.Ni,self.Nj])
+                self.assignLambda(self.state)
         return
 
     def _castLambda(self, lam, method, protocol):
@@ -1117,7 +1141,7 @@ class basisExamol(object):
         #Helper function to shorthand the context.getState(...).getPotentialEnergy() command
         if groups is None:
             groups = -1
-        return self.context.getState(enforcePeriodicBox=True,getEnergy=True,groups=groups).getPotentialEnergy()
+        return self.context.getState(enforcePeriodicBox=False,getEnergy=True,groups=groups).getPotentialEnergy()
 
     def computeArbitraryAlchemicalEnergy(self, lamVector=None, basis=None, derivative=False, provideHValues=False):
         '''
@@ -1359,15 +1383,40 @@ class basisExamol(object):
             output *= basisUnit
         return output
 
+    def _loadCoordinates(self, data, iteration=-1):
+        '''
+        Load and store the particle positions, box vectors, and chemical state (alchemical coordinates) from ncType. This is its own function as the resuming entierly from file and resuming from equilibration are different, but this process is the same
+
+        data : str of filename OR netCDF Dataset, filename can be either a netCDF file or the saved npz file.
+            Object where data is located. Given a string, loads the ncfile in readonly then processes, otherwise just processes nc file
+        iteration : int of index position
+            Index of the 'iteration' dimention in the ncType data to grab positions/vectors from, assumes last position (-1)
+        '''
+        if type(data) is str:
+            try:
+                data = netcdf.Dataset(data, 'r')
+            except:
+                data = np.load(data)
+        if isinstance(data, netcdf.Dataset):
+            self.mainPositions = data.variables['positions'][iteration,:,:] * unit.nanometer
+            self.boxVectors = data.variables['box_vectors'][iteration,:,:] * unit.nanometer
+            self.state = data.variables['state'][iteration,:] 
+            #DEBUG
+            #self.boxVectors = 1.5*ncType.variables['box_vectors'][iteration,:,:] * unit.nanometer
+        else:
+            self.mainPositions = data['pos'] * unit.nanometer
+            self.boxVectors = data['box'] * unit.nanometer
+        return
+
     def _resumeFromFile(self):
         '''
         Resume the simulation from the netcdf file
         '''
         ncfile = netcdf.Dataset(self.filename, 'r')
         self.iteration = ncfile.variables['positions'].shape[0] - 1
-        self.mainPositions = ncfile.variables['positions'][self.iteration,:,:] * unit.nanometer
-        self.boxVectors = ncfile.variables['box_vectors'][self.iteration,:,:] * unit.nanometer
-        self.state = ncfile.variables['state'][self.iteration,:] 
+        self.iteration = ncfile.variables['positions'].shape[0] - 2
+        #Load coordinate, box vectors, and alchemical coordinates
+        self._loadCoordinates(ncfile, iteration=self.iteration)
         try:
             self.naccept = ncfile.groups['MCStats'].variables['naccept'][self.iteration]
             self.ntrials = ncfile.groups['MCStats'].variables['ntrials'][self.iteration]
@@ -1388,6 +1437,8 @@ class basisExamol(object):
                     protoValue = bool(protoValue)
                 elif protoType == 'int':
                     protoValue = int(protoValue)
+                elif protoType == 'float':
+                    protoValue = float(protoValue)
                 elif protoType == 'list':
                     protoValue = protoValue.split('---')
                 elif protoType == 'dict':
@@ -1516,6 +1567,7 @@ class basisExamol(object):
 
     def writeIteration(self):
         #Get State
+        initial_time = time.time()
         state = self.context.getState(getPositions=True, getEnergy=True) 
   
         #Store Positions
@@ -1549,6 +1601,15 @@ class basisExamol(object):
         except:
             pass
 
+        # Force sync to disk to avoid data loss.
+        presync_time = time.time()
+        self.ncfile.sync()
+
+        # Print statistics.
+        final_time = time.time()
+        sync_time = final_time - presync_time
+        elapsed_time = final_time - initial_time
+        if self.verbose: print "Writing data to NetCDF file took {0:.3f} s ({1:.3f} s for sync)".format(elapsed_time, sync_time)
         return
 
     def run(self):
@@ -1600,7 +1661,8 @@ class basisExamol(object):
         defaultProtocols['crossSwitches'] = {'R':'linear'}
         defaultProtocols['skipContextUnits'] = True
         defaultProtocols['verbose'] = True
-        defaultProtocols['stepsPerMC'] = 10
+        defaultProtocols['stepsPerMCInner'] = 10
+        defaultProtocols['stepsPerMCOuter'] = 1
         defaultProtocols['stepsPerIteration'] = 100 #makes 1ps per write out
         defaultProtocols['nIterations'] = 10000 # Makes 10ns at default values
         if protocol is None:
@@ -1622,7 +1684,7 @@ class basisExamol(object):
                 self.protocol = defaultProtocols
         return
 
-    def __init__(self, Ni, Nj, ff, protocol=None, equilibrate=False, filename='examol.nc', systemname='examolsystem.xml', eqfile='examoleq.nc'):
+    def __init__(self, Ni, Nj, ff, protocol=None, equilibrate=False, filename='examol.nc', systemname='examolsystem.xml', eqfile='examoleq.nc', coordsFromFile=None):
         self.Ni = Ni
         self.Nj = Nj
         self.ff = ff
@@ -1644,8 +1706,10 @@ class basisExamol(object):
             self.filename = filename
         self.systemname = systemname
         #Resume Functionality
+        self.coordsLoaded = False 
         if os.path.isfile(self.filename):
             self.resume = True
+            self.coordsLoaded = True
             self._resumeFromFile()
         else:
             self._setProtocol(protocol)
@@ -1655,6 +1719,20 @@ class basisExamol(object):
             self.protocol['verbose'] = protocol['verbose']
         except:
             pass 
+        #Set some more easily accessed common variables
+        self.temperature = self.protocol['temperature']
+        self.kT = kB * self.temperature
+        self.pressure = self.protocol['pressure']
+        self.timestep = self.protocol['timestep']
+        self.verbose = self.protocol['verbose']
+        self.stepsPerMCInner = self.protocol['stepsPerMCInner']
+        self.stepsPerMCOuter = self.protocol['stepsPerMCOuter']
+        if coordsFromFile is not None and not self.coordsLoaded:
+            if os.path.isfile(coordsFromFile):
+                if self.verbose:
+                    print("Loading coordinates and box vectors from final frame of {0:s}".format(coordsFromFile))
+                self.coordsLoaded = True
+                self._loadCoordinates(coordsFromFile)
         #H_lambda switches
         self.standardH = basisSwitches(protocol=self.protocol['standardSwitches'])
         self.crossH = basisSwitches(protocol=self.protocol['crossSwitches'])
@@ -1670,13 +1748,6 @@ class basisExamol(object):
         self._flatCrossUniqueBasis = list(itertools.chain.from_iterable(self.crossUniqueBasis))
         #Count total unique basis
         self._countTotalBasisFunctions()
-        #Set some more easily accessed common variables
-        self.temperature = self.protocol['temperature']
-        self.kT = kB * self.temperature
-        self.pressure = self.protocol['pressure']
-        self.timestep = self.protocol['timestep']
-        self.verbose = self.protocol['verbose']
-        self.stepsPerMC = self.protocol['stepsPerMC']
         #Load the core, we wont be using it in base form for long
         coreSystem, self.corecoords = self.loadpdb('pdbfiles/core/corec')
         self.corePositions = self.corecoords.getPositions(asNumpy=True) #Positions of core atoms (used for alignment)
@@ -1690,16 +1761,29 @@ class basisExamol(object):
             if self.verbose: print("Rebuilding System from file!")
             with open(self.systemname, 'r') as systemfile:
                 self.mainSystem = mm.XmlSerializer.deserialize(systemfile.read())
+            if self.verbose: print("Rebuilding Topology from file!")
+            with open(self.systemname[:-4] + '.top', 'r') as topfile:
+                self.mainTopology = pickle.load(topfile)
+                #Recount the atom numbers to get the solvent numbers back out
+                totalN = self.mainSystem.getNumParticles()
+                soluteNAtoms = len([res for res in self.mainTopology.residues() if res.name == 'COC'][0]._atoms)
+                self.solventNumbers = np.arange(soluteNAtoms,totalN)
             self.mainBondForce = getArbitraryForce(self.mainSystem, mm.HarmonicBondForce)
             self.mainAngleForce = getArbitraryForce(self.mainSystem, mm.HarmonicAngleForce)
             self.mainTorsionForce = getArbitraryForce(self.mainSystem, mm.PeriodicTorsionForce)
             self.mainNonbondedForce = getArbitraryForce(self.mainSystem, mm.NonbondedForce)
             self.mainCMRForce = getArbitraryForce(self.mainSystem, mm.CMMotionRemover)
-            if not self.resume:
-                self.mainPositions = np.load(self.filename + '.initPos.npy') * unit.nanometer
-                boxVectors = self.mainSystem.getDefaultPeriodicBoxVectors()
-                self.boxVectors = np.array([x/unit.nanometer for x in boxVectors]) * unit.nanometer
+            if not self.coordsLoaded:
+                posdata = np.load(self.filename + '.initPos.npz')
+                self.mainPositions = posdata['pos'] * unit.nanometer
+                self.boxVectors    = posdata['box'] * unit.nanometer
+                boxVectors = self.mainSystem.setDefaultPeriodicBoxVectors(self.boxVectors[0,:], self.boxVectors[1,:], self.boxVectors[2,:])
+            self.mainTopology.setPeriodicBoxVectors(self.boxVectors)
+            #self.mainTopology.setPeriodicBoxVectors(self.boxVectors[0,:], self.boxVectors[1,:], self.boxVectors[2,:])
         else:
+            if self.coordsLoaded:
+                tempPos = deepcopy(self.mainPositions)
+                tempBox = deepcopy(self.boxVectors)
             self.mainSystem = deepcopy(coreSystem)
             self.mainTopology = deepcopy(self.corecoords.getTopology())
             self.mainPositions = deepcopy(self.corePositions)
@@ -1722,8 +1806,17 @@ class basisExamol(object):
             self._buildBiasForces()
             with open(self.systemname, 'w') as systemfile:
                 systemfile.write(mm.XmlSerializer.serialize(self.mainSystem))
-            #Save positions with some clever name
-            np.save(self.filename + '.initPos.npy', self.mainPositions/unit.nanometer)
+            #Write topology
+            with open(self.systemname[:-4] + '.top', 'w') as topfile:
+                pickle.dump(self.mainTopology, topfile)
+            if self.coordsLoaded:
+                self.mainPositions = tempPos
+                self.boxVectors = tempBox
+                del tempPos, tempBox
+            else:    
+                #Save positions with some clever name
+                posfile = self.filename + '.initPos.npz'
+                np.savez(posfile, pos=self.mainPositions/unit.nanometer, box=self.boxVectors/unit.nanometer)
         self.nParticles = self.mainSystem.getNumParticles()
         self.nIterations = self.protocol['nIterations']
         if not self.resume:

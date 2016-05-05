@@ -66,48 +66,71 @@ def loadpdb(basefilename, NBM=NBM, NBCO=NBCO, constraints=constraints, rigidWate
         print("WARNING: {0:s} does not have matching topology and system bonds/constraints!".format(basefilename))
     return system, pdbfile
 
-def writePDBCoords(filename, topology, positions):
-    #Cast positions into on-demand generator
-    def posgen(positions):
-        nPos = positions.shape[0]
-        i = 0
-        while i < nPos:
-            yield positions[i,:]
-            i += 1
+def writeGROCoords(filename, topology, positions):
+    #Write out a GRO file positions based on the topology names and positions
+    writestr = ''
+    writestr += "CREATED WITH EXAMOL\n"
+    writestr += "{0:d}\n".format(positions.shape[0])
+    #            resnum        resname        atomname     atnum    
+    pointstr = "{resid: >5d}{resname: >5s}{atname:>5s}{atnum:>5d}{xcoord:> 8.3f}{ycoord:> 8.3f}{zcoord:> 8.3f}\n"
+    #Construct atoms
+    ci = 0 
+    ai = 1
+    for chain in topology.chains():
+        ri = 1
+        for res in chain.residues():
+            resname = res.name
+            for atom in res.atoms():
+                x,y,z = positions[ai-1,:].value_in_unit(unit.nanometer)
+                name = atom.name
+                atdic = {"atnum":ai, "atname":name, "resname":resname, "resid":ri, "xcoord":x, "ycoord":y, "zcoord":z}
+                writestr += pointstr.format(**atdic)
+                ai += 1
+            ri += 1
+        ci +=1
+    #PBC
+    box = topology.getPeriodicBoxVectors()
+    writestr += "{0:.3f} {1:.3f} {2:.3f}\n".format(*(box/unit.nanometer).diagonal())
+    with open(filename, 'w') as grofile:
+        grofile.write(writestr)
+    return
 
-    Pgen = posgen(positions)
+def writePDBCoords(filename, topology, positions):
     #Write out a PDB file positions based on the topology names and positions
-    wrtiestr = ''
+    writestr = ''
     writestr += "REMARK CREATED WITH EXAMOL\n"
     #PBC
-    writestr += "CRYSTL   {0:0.3f}   {1:0.3f}   {2:0.3f}  90.00  90.00  90.00 P 1           1\n".format()
+    box = topology.getPeriodicBoxVectors()
+    writestr += "CRYSTL   {0:0.3f}   {1:0.3f}   {2:0.3f}  90.00  90.00  90.00 P 1           1\n".format(*(box/unit.angstrom).diagonal())
     writestr += "MODEL\n"
     #                   num           name         res        chainid    resid
     pointstr = "ATOM {atnum: >6d} {atname: >4s} {resname:>3s} {chain:1s}{resid: >4d}      {xcoord: >5.3f}  {ycoord: >5.3f}  {zcoord: >5.3f}  1.00  0.00 {element: >11s}\n"
     #                idnum
     termstr = "TER {atnum: >6d}      {resname:>3s} {chain:1s}{resid: >4d}\n"
     #Construct atoms
-    getPos 
     ci = 0 
     cstr = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     ai = 1
     for chain in topology.chains():
         cs = cstr[ci]
         ri = 1
-        for res in chain.resudies():
+        for res in chain.residues():
             resname = res.name
             for atom in res.atoms():
-                x,y,z = next(posgen).value_in_unit(unit.angstrom)
+                x,y,z = positions[ai-1,:].value_in_unit(unit.angstrom)
                 name = atom.name
-                element = atom.element
+                element = atom.element.symbol
                 atdic = {"atnum":ai, "atname":name, "resname":resname, "chain":cs, "resid":ri, "xcoord":x, "ycoord":y, "zcoord":z, "element":element }
-                writestr += pointstr.format(atdic)
+                writestr += pointstr.format(**atdic)
+                ai += 1
             ri += 1
         #Remove one so last residue is used as term
         ri -= 1
         terdic = {"atnum":ai, "resname":resname, "chain":cs, "resid":ri}
-        writestr += termstr.format(terdic)
+        writestr += termstr.format(**terdic)
         ci +=1
+    with open(filename, 'w') as pdbfile:
+        pdbfile.write(writestr)
     return
 
 
@@ -152,6 +175,15 @@ def checkEnergies(sim, steps=100):
     return ke+pe
 
 def timeSteps(sim, steps):
+    print("Timing {0:d} timesteps".format(steps))
+    if hasattr(sim, "integratorEngine"):
+        from examolintegrators import HybridLDMCIntegratorEngine as HLDMC
+        IE = sim.integratorEngine
+        if isinstance(IE, HLDMC):
+            #Convert to the true number of steps 
+            steps = steps/IE.stepsPerMC
+    steps=1
+    print steps, IE.stepsPerMC
     pr = cProfile.Profile()
     pr.enable()
     sim.integrator.step(steps)
@@ -187,7 +219,7 @@ def initilizeSimulation(**kwargs):
         Nj = 10 #Number of jth groups
     basisSim = basisExamol(Ni, Nj, ff, **kwargs)
     
-    if not basisSim.resume:
+    if not basisSim.coordsLoaded:
         #Set the positions so all particles are in the box and do no wrap oddly
         box=basisSim.mainSystem.getDefaultPeriodicBoxVectors()
         box = np.array([unit.norm(vector.value_in_unit(unit.nanometer)) for vector in box])*unit.nanometer
@@ -261,11 +293,96 @@ def execute():
     else:
         filename = 'examol.nc'
         systemname = 'examolsystem.xml'
-    basisSim = initilizeSimulation(filename=filename, equilibrate=True, systemname=systemname, protocol={'nIterations':1000, 'stepsPerIteration':1000})
+    #basisSim = initilizeSimulation(filename=filename, equilibrate=True, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':2000, 'stepsPerIteration':1000, 'pressure':1*unit.atmosphere,'timestep':1.0*unit.femtosecond})
+    #basisSim = initilizeSimulation(filename=filename, equilibrate=True, systemname=systemname, coordsFromFile='examol.nc.initPos.npz', protocol={'nIterations':2000, 'stepsPerIteration':1000, 'timestep':1.0*unit.femtosecond})
+    #basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1})
+    #basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1, 'stepsPerMC':1})
+    basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1})
     #basisSim = initilizeSimulation(filename=filename, systemname=systemname, protocol={'nIterations':4})
     #context.applyConstraints(1E-6)
     #Pull the initial energy to allocte the Context__getStateAsLists call for "fair" testing, still looking into why the initial call is slow
+    #writeGROCoords('allatomwtap.gro', basisSim.mainTopology, basisSim.context.getState(getPositions=True,enforcePeriodicBox=True).getPositions(asNumpy=True))
+    #mod = app.Modeller(basisSim.mainTopology, basisSim.mainPositions)
+    #mod.delete([res for res in mod.topology.residues() if res.name == 'COC'])
+    #writeGROCoords('watergro.gro', mod.getTopology(), listCoordsToNumpy(mod.getPositions()))
+    
+    #Write out bond connectivity
+    #hbf=[basisSim.mainSystem.getForce(i) for i in xrange(basisSim.mainSystem.getNumForces()) if isinstance(basisSim.mainSystem.getForce(i), mm.HarmonicBondForce)][0]
+    #with open('grotop.txt', 'w') as grotop:
+    #    #Handle atomtypes
+    #    writestr = '[ atoms ]\n'
+    #    writestr += '; id  attype res nr  res name  at name  cg nr  charge    mass\n'
+    #    c0 = basisSim.mainTopology._chains[0]
+    #    counter = 0
+    #    for atom in c0.atoms():
+    #        m = basisSim.mainSystem.getParticleMass(counter)/unit.amu
+    #        writestr += ' {i: >3d} ?????? {resnum: >2d} {resname: >s} {atname: >6s} 1 0.00000 {mass: >6.4f}\n'.format(i=int(atom.id), resnum=int(atom.residue.id), resname=atom.residue.name, atname=atom.name, mass=m)
+    #        counter +=1
+    #    #Bonds
+    #    writestr += '\n[ bonds ]\n'
+    #    writestr += '; i   j   funct   length  force_constant\n'
+    #    for iBond in xrange(hbf.getNumBonds()):
+    #        i, j, l, k = hbf.getBondParameters(iBond)
+    #        writestr += ' {i: >3d} {j: >3d} 1  {l: >5.3f}  {k: >6.3f}\n'.format(i=i+1, j=j+1, l=l/unit.nanometer, k=k.value_in_unit(unit.kilojoules_per_mole/unit.nanometer**2))
+    #    #Constraints
+    #    writestr += '\n[ constraints ]\n'
+    #    writestr += '; i   j   funct   length\n'
+    #    for iConst in xrange(basisSim.mainSystem.getNumConstraints()):
+    #        i, j, l = basisSim.mainSystem.getConstraintParameters(iConst)
+    #        if i not in basisSim.solventNumbers and j not in basisSim.solventNumbers:
+    #            writestr += ' {i: >3d} {j: >3d} 1  {l: >5.3f} \n'.format(i=i+1, j=j+1, l=l/unit.nanometer)
+    #    grotop.write(writestr)
+    
+    #pdb.set_trace()
+
+    #One off code to bring in new water gro file
+    #watergro = app.gromacsgrofile.GromacsGroFile('outframe.gro')
+    #waterpos = watergro.getPositions(asNumpy=True)
+    #waterbox = listCoordsToNumpy(watergro.getPeriodicBoxVectors())
+    #basisSim.mainPositions[basisSim.solventNumbers,:] = waterpos
+    #basisSim.boxVectors = waterbox
+    #basisSim.context.setPositions(basisSim.mainPositions)
+    #basisSim.context.setPeriodicBoxVectors(basisSim.boxVectors[0,:], basisSim.boxVectors[1,:], basisSim.boxVectors[2,:])
+    #writeGROCoords('newwaterwrap.gro', basisSim.mainTopology, basisSim.context.getState(getPositions=True,enforcePeriodicBox=True).getPositions(asNumpy=True))
+
+    basisSim.assignLambda(np.array([0.5]*(basisSim.Ni*basisSim.Nj)))
+    basisSim.assignLambda(np.array([0.1]*(basisSim.Ni*basisSim.Nj)))
+    #basisSim.assignLambda(np.array([[0,0,0,0,0,0,0,1,0,0],
+    #                                [0,0,0,0,0,1,0,0,0,0],
+    #                                [0,0,1,0,0,0,0,0,0,0]]))
+    #basisSim.assignLambda(np.array([0]*(basisSim.Ni*basisSim.Nj)))
     initialU = basisSim.computeBasisEnergy()
+    if False:
+        E0 = []
+        E1 = []
+        for i in xrange(basisSim.calcGroup(2,9,2,9)+3):
+            E0.append(basisSim.getPotential(groups=i)/unit.kilojoules_per_mole)
+        basisSim.integrator.step(1)
+        for i in xrange(basisSim.calcGroup(2,9,2,9)+3):
+            E1.append(basisSim.getPotential(groups=i)/unit.kilojoules_per_mole)
+        try:
+            steps = 10
+            eo = np.zeros(steps)
+            en = np.zeros(steps)
+            epn = np.zeros(steps)
+            epo = np.zeros(steps)
+            eVal = np.zeros(steps)
+            kT=basisSim.integrator.getGlobalVariableByName('kT')
+            for i in xrange(steps):
+                eo[i]=basisSim.integrator.getGlobalVariableByName('Eold')
+                en[i]=basisSim.integrator.getGlobalVariableByName('Enew')
+                epn[i]=basisSim.integrator.getGlobalVariableByName('Eprimenew')
+                epo[i]=basisSim.integrator.getGlobalVariableByName('Eprimeold')
+                eVal[i] = -((en[i]-eo[i])-(epn[i]-epo[i]))/kT
+                basisSim.integrator.step(1)
+            deo = eo-epo
+        except: pass
+        E0 = np.array(E0)
+        E1 = np.array(E1)
+        dE = E1-E0
+        pdb.set_trace()
+    #timeSteps(basisSim, 1000)
+    pdb.set_trace()
     basisSim.run()
 
 if __name__ == "__main__":

@@ -35,31 +35,51 @@ class HybridLDMCIntegratorEngine(object):
         # HMC integrator, derived from the OpenMMTools repo for HMC integrator by J. Chodera
         temp = self._basisSim.temperature
         kT = kB * temp
-        integrator.addGlobalVariable('kT', kT)
-        integrator.addGlobalVariable("naccept", 0)  # number accepted
-        integrator.addGlobalVariable("ntrials", 0)  # number of Metropolization trials
+        #Set integrator variables
+        #Global Variables
         integrator.addPerDofVariable("sigma", 0)
         integrator.addGlobalVariable("ke", 0)  # kinetic energy
-        integrator.addPerDofVariable("xold", 0)  # old positions
-        integrator.addGlobalVariable("Eold", 0)  # old energy
-        integrator.addGlobalVariable("Eprimeold", 0)  # old energy
-        integrator.addGlobalVariable("Enew", 0)  # new energy
-        integrator.addGlobalVariable("Eprimenew", 0)  # new energy
-        integrator.addGlobalVariable("accept", 0)  # accept or reject
-        integrator.addGlobalVariable("counterMC", 0) #While block counter for MC steps 
-        integrator.addGlobalVariable("stepsPerMC", self.stepsPerMC) #While block counter for MC steps 
+        integrator.addGlobalVariable('kT', kT)
+        #Statistics
+        integrator.addGlobalVariable("nacceptOuter", 0)
+        integrator.addGlobalVariable("nacceptInner", 0)
+        integrator.addGlobalVariable("ntrialsOuter", 0)  # number of Metropolization trials
+        integrator.addGlobalVariable("ntrialsInner", 0)  # number of Metropolization trials
+        integrator.addPerDofVariable("xoldOuter", 0)  # old positions
+        integrator.addGlobalVariable("EoldOuter", 0)  # old energy
+        integrator.addPerDofVariable("xoldInner", 0) 
+        integrator.addGlobalVariable("EoldInner", 0)  
+        integrator.addGlobalVariable("EoldInnerEval", 0) #Special storage of the approximate old potential for the outer evaluation 
+        integrator.addGlobalVariable("EnewOuter", 0)  # new energy
+        integrator.addGlobalVariable("EnewInner", 0)  # new energy
+        #Accept/Reject
+        integrator.addGlobalVariable("acceptOuter", 0)
+        integrator.addGlobalVariable("acceptInner", 0)
+        integrator.addGlobalVariable("counterMCInner", 0) #While block counter for MC steps 
+        integrator.addGlobalVariable("counterMCOuuter", 0)  
+        integrator.addGlobalVariable("stepsPerMCInner", self.stepsPerMCInner) #While block counter for number of MD steps before taking hybrid MC step
+        integrator.addGlobalVariable("stepsPerMCOuter", self.stepsPerMCOuter) #While block counter for outter approximate potential MC chain, counts number of Hybrid MC steps inner
         #Velocity Verlet integrator with constraints
         #Because theta is (-inf,inf) and no other constraints are on it, we do not have to constrain its "position"
         integrator.addPerDofVariable("x1", 0); #For constraints in cartesian
         for i in xrange(self._basisSim.Ni):
             for j in xrange(self._basisSim.Nj):
-                integrator.addGlobalVariable('old{0:d}x{1:d}B'.format(i,j), 0)
+                integrator.addGlobalVariable('old{0:d}x{1:d}BOuter'.format(i,j), 0)
+                integrator.addGlobalVariable('old{0:d}x{1:d}BInner'.format(i,j), 0)
                 #Due to odd unit module issues, I need to compute sigma by hand
                 mass = self.lamMasses[i,j] # Unit in am
                 sigma = np.sqrt(kT.value_in_unit(unit.kilojoules_per_mole)/mass)
                 integrator.addGlobalVariable('sigma{0:d}x{1:d}'.format(i,j), sigma)
                 integrator.addGlobalVariable('lamV{0:d}x{1:d}'.format(i,j), 0)
+        #Storage variables for NVE MD steps and reducing force calls
+        integrator.addGlobalVariable("forceStored", 0)
+        integrator.addPerDofVariable("storedForce", 0)
+        #DEBUG variables
 
+        '''
+        DEBUG
+        Lambda updates disabled
+        '''
         #Integrator proper
         #Initilize velocities for MC V-randomization
         #Draw new velocities from a maxwell boltzman distribution
@@ -68,98 +88,151 @@ class HybridLDMCIntegratorEngine(object):
         integrator.addComputePerDof("v", "sigma*gaussian")
         for i in xrange(self._basisSim.Ni):
             for j in xrange(self._basisSim.Nj):
-                integrator.addComputeGlobal('old{0:d}x{1:d}B'.format(i,j), "lam{0:d}x{1:d}B".format(i,j))
+                integrator.addComputeGlobal('old{0:d}x{1:d}BOuter'.format(i,j), "lam{0:d}x{1:d}B".format(i,j))
+                #For initial inner loop step, lambda value is the same, we'll update at end of inner loop
+                integrator.addComputeGlobal('old{0:d}x{1:d}BInner'.format(i,j), "lam{0:d}x{1:d}B".format(i,j))
                 integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), "sigma{0:d}x{1:d}*gaussian".format(i,j))
         integrator.addConstrainVelocities()
+        #Start Outer MC loop
         # Store old position and energy.
         integrator.addComputeSum("ke", "0.5*m*v*v")
-        integrator.addComputeGlobal("Eold", "ke + energy")
-        integrator.addComputePerDof("xold", "x")
-        #Deactivate cross-alchemical terms to compute primed energy
-        integrator.addComputeGlobal("includeSecond", "0")
-        integrator.addComputeGlobal("Eprimeold", "ke + energy")
-
-        # Inner symplectic steps using velocity Verlet.
-        #for step in xrange(self.stepsPerMC):
-        integrator.addComputeGlobal("counterMC", "0")
-        integrator.beginWhileBlock("counterMC < stepsPerMC")
-        if True: #This is a visual indentation block to show what is falling under the integrator's "while" block
-            #pL(t)
-            integrator.addComputeGlobal("derivMode", "1")
-            #Compute the velocity of each lambda term
-            for i in xrange(self._basisSim.Ni):
-                for j in xrange(self._basisSim.Nj):
-                    group = self._basisSim.calcGroup(i,j)
-                    integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), 'lamV{i:d}x{j:d} + dt*energy{group:d}/{m:f}'.format(i=i,j=j,group=group,m=self.lamMasses[i,j]))
-            integrator.addComputeGlobal("derivMode", "0");
-            #p(t/2)
-            integrator.addComputePerDof("v", "v+0.5*dt*f/m")
-            #q(t)
-            integrator.addComputePerDof("x", "x+dt*v")
-            #qL(t)
-            #Update alchemcial positions
-            for i in xrange(self._basisSim.Ni):
-                for j in xrange(self._basisSim.Nj):
-                    integrator.addComputeGlobal('lam{0:d}x{1:d}B'.format(i,j), 'lam{i:d}x{j:d}B + dt*lamV{i:d}x{j:d}'.format(i=i,j=j))
-                    #Add reflective BC steps
-                    #ISSUE: IfBlocks with all R-groups is painfuly slow to construct integrator
-                    #Check if lam < 0 
-                    integrator.addComputeGlobal('lam{0:d}x{1:d}B'.format(i,j), 'step(lam{i:d}x{j:d}B)*lam{i:d}x{j:d}B + (1-step(lam{i:d}x{j:d}B))*(-lam{i:d}x{j:d}B)'.format(i=i,j=j))
-                    integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), 'step(lam{i:d}x{j:d}B)*lamV{i:d}x{j:d} + (1-step(lam{i:d}x{j:d}B))*(-lamV{i:d}x{j:d}B)'.format(i=i,j=j))
-                    #integrator.beginIfBlock("lam{0:d}x{1:d}B < 0".format(i,j))
-                    #if True: #Visual integrator IF block
-                    #    integrator.addComputeGlobal("lam{0:d}x{1:d}B".format(i,j), "-lam{0:d}x{1:d}B".format(i,j))
-                    #    integrator.addComputeGlobal("lamV{0:d}x{1:d}".format(i,j), "-lamV{0:d}x{1:d}".format(i,j))
-                    #    integrator.endBlock()
-                    #Check if lam > 1 
-                    integrator.addComputeGlobal('lam{0:d}x{1:d}B'.format(i,j), 'step(1-lam{i:d}x{j:d}B)*lam{i:d}x{j:d}B + (1-step(1-lam{i:d}x{j:d}B))*(2-lam{i:d}x{j:d}B)'.format(i=i,j=j))
-                    integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), 'step(1-lam{i:d}x{j:d}B)*lamV{i:d}x{j:d} + (1-step(1-lam{i:d}x{j:d}B))*(-lamV{i:d}x{j:d}B)'.format(i=i,j=j))
-                    #integrator.beginIfBlock("lam{0:d}x{1:d}B > 1".format(i,j))
-                    #if True: #Visual integrator IF block
-                    #    integrator.addComputeGlobal("lam{0:d}x{1:d}B".format(i,j), "2-lam{0:d}x{1:d}B".format(i,j))
-                    #    integrator.addComputeGlobal("lamV{0:d}x{1:d}".format(i,j), "-lamV{0:d}x{1:d}".format(i,j))
-                    #    integrator.endBlock()
-            #q(t)
-            integrator.addComputePerDof("x1", "x")
-            integrator.addConstrainPositions()
-            #p(t/2)
-            integrator.addComputePerDof("v", "v+0.5*dt*f/m+(x-x1)/dt")
-            integrator.addConstrainVelocities()
-            integrator.addComputeGlobal("counterMC", "counterMC + 1")
-            integrator.endBlock()
-        #Accept/Reject Step
-        integrator.addComputeSum("ke", "0.5*m*v*v")
-        integrator.addComputeGlobal("Eprimenew", "ke + energy0")
-        #Flip secondary interactions back on
-        integrator.addComputeGlobal("includeSecond", "1")
-        integrator.addComputeGlobal("Enew", "ke + energy")
-        #integrator.addComputeGlobal("accept", "step(exp(-(Enew-Eold)/kT) - uniform)") #Condition for non-approximate potential
-        integrator.addComputeGlobal("accept", "step(exp(-((Enew-Eold)-(Eprimenew-Eprimeold))/kT) - uniform)")
-        integrator.addComputePerDof("x", "x*accept + xold*(1-accept)")
+        #Compute alchemical kinetic energy, writing this as 1 string to keep number of steps small
+        keStrComps = []
         for i in xrange(self._basisSim.Ni):
             for j in xrange(self._basisSim.Nj):
-                integrator.addComputeGlobal(standardParameter.format(i=i,j=j), "lam{i:d}x{j:d}B*accept + old{i:d}x{j:d}B*(1-accept)".format(i=i,j=j))
-        #
-        # Accumulate statistics.
-        #
-        integrator.addComputeGlobal("naccept", "naccept + accept")
-        integrator.addComputeGlobal("ntrials", "ntrials + 1")
+                keStrComps.append('{m:f}*lamV{i:d}x{j:d}^2'.format(m=self.lamMasses[i,j], i=i, j=j))
+        integrator.addComputeGlobal("ke", "ke + 0.5*(" + " + ".join(keStrComps) + ")")
+        integrator.addComputeGlobal("EoldOuter", "ke + energy")
+        integrator.addComputePerDof("xoldOuter", "x")
+        integrator.addComputePerDof("xoldInner", "x")
+        #Deactivate cross-alchemical terms to compute primed energy
+        integrator.addComputeGlobal("includeSecond", "0")
+        #Store approximate old energy for outter eval later
+        integrator.addComputeGlobal("EoldInnerEval", "ke + energy")
+        #Speed up inner calculations
+        integrator.addComputeGlobal("EoldInner", "EoldInnerEval")
+        #Switch to Inner MC Loop, adding a visual indintation to help code
+        #Outer MC Loop counter
+        integrator.addComputeGlobal("counterMCOuter", "0")
+        integrator.beginWhileBlock("counterMCOuter < stepsPerMCOuter")
+        if True:
+            # Inner symplectic steps using velocity Verlet.
+            #for step in xrange(self.stepsPerMC):
+            integrator.addComputeGlobal("counterMCInner", "0")
+            integrator.beginWhileBlock("counterMCInner < stepsPerMCInner")
+            if True: #This is a visual indentation block to show what is falling under the integrator's "while" block
+                #pL(t)
+                integrator.addComputeGlobal("derivMode", "1")
+                #Compute the velocity of each lambda term
+                for i in xrange(self._basisSim.Ni):
+                    for j in xrange(self._basisSim.Nj):
+                        group = self._basisSim.calcGroup(i,j)
+                        #This is MINUS the force term since force is -dU/dL. "f" variable = "-dU/dr", but since we manually coded 
+                        integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), 'lamV{i:d}x{j:d} - dt*energy{group:d}/{m:f}'.format(i=i,j=j,group=group,m=self.lamMasses[i,j]))
+                integrator.addComputeGlobal("derivMode", "0");
+                #Check if force is stored
+                integrator.beginIfBlock("forceStored = 0")
+                if True: #Visual
+                    integrator.addComputePerDof("storedForce", "f")
+                    #The force stored flag is set here
+                    integrator.addComputeGlobal("forceStored", "1")
+                    integrator.endBlock()
+                #p(t/2)
+                #integrator.addComputePerDof("v", "v+0.5*dt*f/m")
+                integrator.addComputePerDof("v", "v+0.5*dt*storedForce/m")
+                #q(t)
+                integrator.addComputePerDof("x", "x+dt*v")
+                #qL(t)
+                #Update alchemcial positions
+                for i in xrange(self._basisSim.Ni):
+                    for j in xrange(self._basisSim.Nj):
+                        integrator.addComputeGlobal('lam{0:d}x{1:d}B'.format(i,j), 'lam{i:d}x{j:d}B + dt*lamV{i:d}x{j:d}'.format(i=i,j=j))
+                        #Add reflective BC steps
+                        #ISSUE: IfBlocks with all R-groups is painfuly slow to construct integrator
+                        #Check if lam < 0 
+                        integrator.addComputeGlobal('lam{0:d}x{1:d}B'.format(i,j), 'step(lam{i:d}x{j:d}B)*lam{i:d}x{j:d}B + (1-step(lam{i:d}x{j:d}B))*(-lam{i:d}x{j:d}B)'.format(i=i,j=j))
+                        integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), 'step(lam{i:d}x{j:d}B)*lamV{i:d}x{j:d} + (1-step(lam{i:d}x{j:d}B))*(-lamV{i:d}x{j:d}B)'.format(i=i,j=j))
+                        #integrator.beginIfBlock("lam{0:d}x{1:d}B < 0".format(i,j))
+                        #if True: #Visual integrator IF block
+                        #    integrator.addComputeGlobal("lam{0:d}x{1:d}B".format(i,j), "-lam{0:d}x{1:d}B".format(i,j))
+                        #    integrator.addComputeGlobal("lamV{0:d}x{1:d}".format(i,j), "-lamV{0:d}x{1:d}".format(i,j))
+                        #    integrator.endBlock()
+                        #Check if lam > 1 
+                        integrator.addComputeGlobal('lam{0:d}x{1:d}B'.format(i,j), 'step(1-lam{i:d}x{j:d}B)*lam{i:d}x{j:d}B + (1-step(1-lam{i:d}x{j:d}B))*(2-lam{i:d}x{j:d}B)'.format(i=i,j=j))
+                        integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), 'step(1-lam{i:d}x{j:d}B)*lamV{i:d}x{j:d} + (1-step(1-lam{i:d}x{j:d}B))*(-lamV{i:d}x{j:d}B)'.format(i=i,j=j))
+                        #integrator.beginIfBlock("lam{0:d}x{1:d}B > 1".format(i,j))
+                        #if True: #Visual integrator IF block
+                        #    integrator.addComputeGlobal("lam{0:d}x{1:d}B".format(i,j), "2-lam{0:d}x{1:d}B".format(i,j))
+                        #    integrator.addComputeGlobal("lamV{0:d}x{1:d}".format(i,j), "-lamV{0:d}x{1:d}".format(i,j))
+                        #    integrator.endBlock()
+                #q(t)
+                integrator.addComputePerDof("x1", "x")
+                integrator.addConstrainPositions()
+                #p(t/2)
+                integrator.addComputePerDof("storedForce", "f")
+                #integrator.addComputePerDof("v", "v+0.5*dt*f/m+(x-x1)/dt")
+                integrator.addComputePerDof("v", "v+0.5*dt*storedForce/m+(x-x1)/dt")
+                integrator.addConstrainVelocities()
+                integrator.addComputeGlobal("counterMCInner", "counterMCInner + 1")
+                integrator.endBlock()
+            #Inner Accept/Reject Step
+            integrator.addComputeSum("ke", "0.5*m*v*v")
+            integrator.addComputeGlobal("ke", "ke + 0.5*(" + " + ".join(keStrComps) + ")") #Just reusing the strings generated before
+            integrator.addComputeGlobal("EnewInner", "ke + energy")
+            integrator.addComputeGlobal("acceptInner", "step(exp-((EnewInner-EoldInner)/kT) - uniform)")
+            integrator.addComputePerDof("x", "x*acceptInner + xoldInner*(1-acceptInner)")
+            integrator.addComputePerDof("xoldInner", "x")
+            for i in xrange(self._basisSim.Ni):
+                for j in xrange(self._basisSim.Nj):
+                    integrator.addComputeGlobal(standardParameter.format(i=i,j=j), "lam{i:d}x{j:d}B*acceptInner + old{i:d}x{j:d}BInner*(1-acceptInner)".format(i=i,j=j))
+                    integrator.addComputeGlobal("old{i:d}x{j:d}BInner".format(i=i,j=j), "lam{i:d}x{j:d}B".format(i=i,j=j))
+            #Shuffle the New -> Old if accepted
+            integrator.addComputeGlobal("EoldInner", "EnewInner*acceptInner + EoldInner*(1-acceptInner)")
+            #Generate new velocities, does not effect outter loop since KE is stored
+            integrator.addUpdateContextState()
+            integrator.addComputePerDof("v", "sigma*gaussian")
+            for i in xrange(self._basisSim.Ni):
+                for j in xrange(self._basisSim.Nj):
+                    integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), "sigma{0:d}x{1:d}*gaussian".format(i,j))
+            integrator.addConstrainVelocities()
+            #Reset the stored force to be safe. If accept, its fine, otherwise have to store initial old force and add more conditional checks, just resetting it.
+            integrator.addComputeGlobal("forceStored", "0") #Reset stored force
+            # Accumulate Inner statistics.
+            integrator.addComputeGlobal("nacceptInner", "nacceptInner + acceptInner")
+            integrator.addComputeGlobal("ntrialsInner", "ntrialsInner + 1")
+            integrator.addComputeGlobal("counterMCOuter", "counterMCOuter + 1")
+            integrator.endBlock()
+        #Ouuter loop Accept/Reject Step
+        #Flip secondary interactions back on
+        integrator.addComputeGlobal("includeSecond", "1")
+        integrator.addComputeGlobal("EnewOuter", "ke + energy")
+        #The apprximate potential eval here is EoldInner-EoldInnerEval since I moved EnewInner -> EoldInner or preserved old EoldInner from above
+        integrator.addComputeGlobal("acceptOuuter", "step(exp(-((EnewOuter-EoldOuter)-(EoldInner-EoldInnerEval))/kT) - uniform)")
+        #DEBUG
+        #integrator.addComputeGlobal("acceptOuuter", "1")
+        integrator.addComputePerDof("x", "x*acceptOuter + xoldOuter*(1-acceptOuter)")
+        for i in xrange(self._basisSim.Ni):
+            for j in xrange(self._basisSim.Nj):
+                integrator.addComputeGlobal(standardParameter.format(i=i,j=j), "lam{i:d}x{j:d}B*acceptOuter + old{i:d}x{j:d}BOuter*(1-acceptOuter)".format(i=i,j=j))
+        # Accumulate Outer statistics.
+        integrator.addComputeGlobal("nacceptOuter", "nacceptOuter + acceptOuter")
+        integrator.addComputeGlobal("ntrialsOuter", "ntrialsOuter + 1")
         return integrator
 
     @property
     def n_accept(self):
-        """The number of accepted HMC moves."""
-        return self.integrator.getGlobalVariableByName("naccept")
+        """The number of accepted (Outer Approximate MC, Inner HMC) moves."""
+        return (self.integrator.getGlobalVariableByName("nacceptOuter"), self.integrator.getGlobalVariableByName("nacceptInner"))
 
     @property
     def n_trials(self):
-        """The total number of attempted HMC moves."""
-        return self.integrator.getGlobalVariableByName("ntrials")
+        """The total number of attempted (Outer Apprixmate, Inner HMC) moves."""
+        return (self.integrator.getGlobalVariableByName("ntrialsOuter"), self.integrator.getGlobalVariableByName("ntrialsInner") )
 
     @property
     def acceptance_rate(self):
         """The acceptance rate: n_accept  / n_trials."""
-        return self.n_accept / float(self.n_trials)
+        return tuple(na / float(nt) for na,nt in zip(self.n_accept,self.n_trials))
 
     def initilizeIntegrator(self):
         if not hasattr(self._basisSim, 'context'):
@@ -181,16 +254,19 @@ class HybridLDMCIntegratorEngine(object):
             self.integrator.setGlobalVariable('derivMode'.format(i,j), 0)
         return 
         
-    def __init__(self, basisSim, timestep, lamMasses=None, stepsPerMC=10):
+    def __init__(self, basisSim, timestep, lamMasses=None, stepsPerMCInner=10, stepsPerMCOuter=None):
         self._basisSim = basisSim
         if lamMasses is None:
             #Mass assuming the default 0.5 amu A^2 from Knight and Brooks, JCTC 7 2011, pp 2728-2739
-            defaultMass = (5 * unit.amu * unit.angstrom**2)
+            defaultMass = (500 * unit.amu * unit.angstrom**2)
             lamMasses = np.empty([self._basisSim.Ni,self._basisSim.Nj],dtype=float)
             lamMasses.fill(defaultMass.value_in_unit(unit.amu * unit.nanometer**2))
         self.lamMasses = lamMasses.reshape([self._basisSim.Ni,self._basisSim.Nj])
         self.timestep = timestep
-        self.stepsPerMC = stepsPerMC
+        self.stepsPerMCInner = stepsPerMCInner
+        if stepsPerMCOuter is None:
+            stepsPerMCOuter = self.stepsPerMCInner
+        self.stepsPerMCOuter = stepsPerMCOuter
         self.integrator = self._constructIntegrator()
         return
 

@@ -325,6 +325,13 @@ def loadnc(filename, mode='a', full=False, outputs=['energies','positions','stat
         ncfile = None
     return ncfile, returndict
 
+def testMCEvals(oldE, newE, kT, n=1000):
+    dE = newE-oldE
+    accept = np.zeros(n)
+    for i in xrange(n):
+        accept[i] = np.where(np.exp(-dE/kT) - np.random.random(dE.shape) >= 0)[0].size
+    return accept.mean()
+
 def computeHarmonicBias(lamVector, Ni, Nj, lamMin = 0.3, K = 1.0 * unit.kilojoules_per_mole):
     #Sanity check for the harmonic bias force
     K = K/unit.kilojoules_per_mole

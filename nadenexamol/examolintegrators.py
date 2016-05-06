@@ -56,7 +56,7 @@ class HybridLDMCIntegratorEngine(object):
         integrator.addGlobalVariable("acceptOuter", 0)
         integrator.addGlobalVariable("acceptInner", 0)
         integrator.addGlobalVariable("counterMCInner", 0) #While block counter for MC steps 
-        integrator.addGlobalVariable("counterMCOuuter", 0)  
+        integrator.addGlobalVariable("counterMCOuter", 0)  
         integrator.addGlobalVariable("stepsPerMCInner", self.stepsPerMCInner) #While block counter for number of MD steps before taking hybrid MC step
         integrator.addGlobalVariable("stepsPerMCOuter", self.stepsPerMCOuter) #While block counter for outter approximate potential MC chain, counts number of Hybrid MC steps inner
         #Velocity Verlet integrator with constraints
@@ -86,6 +86,7 @@ class HybridLDMCIntegratorEngine(object):
         integrator.addComputePerDof("sigma", "sqrt(kT/m)")
         integrator.addUpdateContextState()
         integrator.addComputePerDof("v", "sigma*gaussian")
+        #DEBUG
         for i in xrange(self._basisSim.Ni):
             for j in xrange(self._basisSim.Nj):
                 integrator.addComputeGlobal('old{0:d}x{1:d}BOuter'.format(i,j), "lam{0:d}x{1:d}B".format(i,j))
@@ -101,6 +102,7 @@ class HybridLDMCIntegratorEngine(object):
         for i in xrange(self._basisSim.Ni):
             for j in xrange(self._basisSim.Nj):
                 keStrComps.append('{m:f}*lamV{i:d}x{j:d}^2'.format(m=self.lamMasses[i,j], i=i, j=j))
+        #DEBUG
         integrator.addComputeGlobal("ke", "ke + 0.5*(" + " + ".join(keStrComps) + ")")
         integrator.addComputeGlobal("EoldOuter", "ke + energy")
         integrator.addComputePerDof("xoldOuter", "x")
@@ -122,6 +124,7 @@ class HybridLDMCIntegratorEngine(object):
             integrator.beginWhileBlock("counterMCInner < stepsPerMCInner")
             if True: #This is a visual indentation block to show what is falling under the integrator's "while" block
                 #pL(t)
+                #DEBUG
                 integrator.addComputeGlobal("derivMode", "1")
                 #Compute the velocity of each lambda term
                 for i in xrange(self._basisSim.Ni):
@@ -143,6 +146,7 @@ class HybridLDMCIntegratorEngine(object):
                 #q(t)
                 integrator.addComputePerDof("x", "x+dt*v")
                 #qL(t)
+                #DEBUG
                 #Update alchemcial positions
                 for i in xrange(self._basisSim.Ni):
                     for j in xrange(self._basisSim.Nj):
@@ -177,11 +181,13 @@ class HybridLDMCIntegratorEngine(object):
                 integrator.endBlock()
             #Inner Accept/Reject Step
             integrator.addComputeSum("ke", "0.5*m*v*v")
+            #DEBUG
             integrator.addComputeGlobal("ke", "ke + 0.5*(" + " + ".join(keStrComps) + ")") #Just reusing the strings generated before
             integrator.addComputeGlobal("EnewInner", "ke + energy")
-            integrator.addComputeGlobal("acceptInner", "step(exp-((EnewInner-EoldInner)/kT) - uniform)")
+            integrator.addComputeGlobal("acceptInner", "step(exp(-(EnewInner-EoldInner)/kT) - uniform)")
             integrator.addComputePerDof("x", "x*acceptInner + xoldInner*(1-acceptInner)")
             integrator.addComputePerDof("xoldInner", "x")
+            #DEBUG
             for i in xrange(self._basisSim.Ni):
                 for j in xrange(self._basisSim.Nj):
                     integrator.addComputeGlobal(standardParameter.format(i=i,j=j), "lam{i:d}x{j:d}B*acceptInner + old{i:d}x{j:d}BInner*(1-acceptInner)".format(i=i,j=j))
@@ -191,6 +197,7 @@ class HybridLDMCIntegratorEngine(object):
             #Generate new velocities, does not effect outter loop since KE is stored
             integrator.addUpdateContextState()
             integrator.addComputePerDof("v", "sigma*gaussian")
+            #DEBUG
             for i in xrange(self._basisSim.Ni):
                 for j in xrange(self._basisSim.Nj):
                     integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), "sigma{0:d}x{1:d}*gaussian".format(i,j))
@@ -202,15 +209,16 @@ class HybridLDMCIntegratorEngine(object):
             integrator.addComputeGlobal("ntrialsInner", "ntrialsInner + 1")
             integrator.addComputeGlobal("counterMCOuter", "counterMCOuter + 1")
             integrator.endBlock()
-        #Ouuter loop Accept/Reject Step
+        #Outer loop Accept/Reject Step
         #Flip secondary interactions back on
         integrator.addComputeGlobal("includeSecond", "1")
         integrator.addComputeGlobal("EnewOuter", "ke + energy")
         #The apprximate potential eval here is EoldInner-EoldInnerEval since I moved EnewInner -> EoldInner or preserved old EoldInner from above
-        integrator.addComputeGlobal("acceptOuuter", "step(exp(-((EnewOuter-EoldOuter)-(EoldInner-EoldInnerEval))/kT) - uniform)")
+        integrator.addComputeGlobal("acceptOuter", "step(exp(-((EnewOuter-EoldOuter)-(EoldInner-EoldInnerEval))/kT) - uniform)")
         #DEBUG
-        #integrator.addComputeGlobal("acceptOuuter", "1")
+        #integrator.addComputeGlobal("acceptOuter", "1")
         integrator.addComputePerDof("x", "x*acceptOuter + xoldOuter*(1-acceptOuter)")
+        #DEBUG
         for i in xrange(self._basisSim.Ni):
             for j in xrange(self._basisSim.Nj):
                 integrator.addComputeGlobal(standardParameter.format(i=i,j=j), "lam{i:d}x{j:d}B*acceptOuter + old{i:d}x{j:d}BOuter*(1-acceptOuter)".format(i=i,j=j))

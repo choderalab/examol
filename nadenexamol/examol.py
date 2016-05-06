@@ -297,7 +297,12 @@ def execute():
     #basisSim = initilizeSimulation(filename=filename, equilibrate=True, systemname=systemname, coordsFromFile='examol.nc.initPos.npz', protocol={'nIterations':2000, 'stepsPerIteration':1000, 'timestep':1.0*unit.femtosecond})
     #basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1})
     #basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1, 'stepsPerMC':1})
-    basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1})
+    #basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1})
+    #basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1, 'timestep':2.0*unit.femtosecond})
+    crossSwitches = {'R':'fourth', 'E':'fourth', 'A':'fourth', 'C':'fourth', 'B':'fourth'}
+    standardSwitches = {'B':'fourth'}
+    #Without alchemical change, ts = 1.5 for optimal HMC, with alchemical change is 1.25fs
+    basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1, 'timestep':1.25*unit.femtosecond, 'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'stepsPerMCOuter':1})
     #basisSim = initilizeSimulation(filename=filename, systemname=systemname, protocol={'nIterations':4})
     #context.applyConstraints(1E-6)
     #Pull the initial energy to allocte the Context__getStateAsLists call for "fair" testing, still looking into why the initial call is slow
@@ -352,7 +357,7 @@ def execute():
     #                                [0,0,1,0,0,0,0,0,0,0]]))
     #basisSim.assignLambda(np.array([0]*(basisSim.Ni*basisSim.Nj)))
     initialU = basisSim.computeBasisEnergy()
-    if False:
+    if True:
         E0 = []
         E1 = []
         for i in xrange(basisSim.calcGroup(2,9,2,9)+3):
@@ -361,7 +366,8 @@ def execute():
         for i in xrange(basisSim.calcGroup(2,9,2,9)+3):
             E1.append(basisSim.getPotential(groups=i)/unit.kilojoules_per_mole)
         try:
-            steps = 10
+            print("Debugging")
+            steps = 100
             eo = np.zeros(steps)
             en = np.zeros(steps)
             epn = np.zeros(steps)
@@ -369,10 +375,11 @@ def execute():
             eVal = np.zeros(steps)
             kT=basisSim.integrator.getGlobalVariableByName('kT')
             for i in xrange(steps):
-                eo[i]=basisSim.integrator.getGlobalVariableByName('Eold')
-                en[i]=basisSim.integrator.getGlobalVariableByName('Enew')
-                epn[i]=basisSim.integrator.getGlobalVariableByName('Eprimenew')
-                epo[i]=basisSim.integrator.getGlobalVariableByName('Eprimeold')
+                en[i] = basisSim.integrator.getGlobalVariableByName('EnewOuter')
+                eo[i] = basisSim.integrator.getGlobalVariableByName('EoldOuter')
+                epo[i] = basisSim.integrator.getGlobalVariableByName('EoldInnerEval')
+                #epn[i] = basisSim.integrator.getGlobalVariableByName('EoldInner')
+                epn[i] = basisSim.integrator.getGlobalVariableByName('EnewInner')
                 eVal[i] = -((en[i]-eo[i])-(epn[i]-epo[i]))/kT
                 basisSim.integrator.step(1)
             deo = eo-epo

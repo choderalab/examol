@@ -237,12 +237,16 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         energy_expression += "sigma = 0.5*(sigma1 + sigma2);" # mixing rule for sigma
         #set up the Switch rules, since these all change together
         switchRules += "repSwitch = (derivMode*repDeriv) + ((1-derivMode)*repBase);"
-        switchRules += "repBase = repVar;"
-        switchRules += "repDeriv = 1;"
+        #switchRules += "repBase = repVar;"
+        #switchRules += "repDeriv = 1;"
+        switchRules += "repBase = repVar^4;"
+        switchRules += "repDeriv = 4*repVar^3;"
         switchRules += "repVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*{1:s});".format(lamR,lamB)
         switchRules += "attSwitch = (derivMode*attDeriv) + ((1-derivMode)*attBase);"
-        switchRules += "attBase = attVar;"
-        switchRules += "attDeriv = 1;"
+        #switchRules += "attBase = attVar;"
+        #switchRules += "attDeriv = 1;"
+        switchRules += "attBase = attVar^4;"
+        switchRules += "attDeriv = 4*attVar^3;"
         switchRules += "attVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*{1:s});".format(lamA,lamB)
 
     if Electro:
@@ -262,8 +266,10 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         energy_expression += "krf = (1/(rcut^3)) * ((dielectric-1)/(2*dielectric+1));"
         energy_expression += "crf = (1/rcut) * ((3*dielectric)/(2*dielectric+1));"
         switchRules += "elecSwitch = (derivMode*elecDeriv) + ((1-derivMode)*elecBase);"
-        switchRules += "elecBase = elecVar;"
-        switchRules += "elecDeriv = 1;"
+        #switchRules += "elecBase = elecVar;"
+        #switchRules += "elecDeriv = 1;"
+        switchRules += "elecBase = elecVar^4;"
+        switchRules += "elecDeriv = 4*elecVar^3;"
         switchRules += "elecVar = (singleSwitchMode * {0:s}) + ((1-singleSwitchMode)*{1:s});".format(lamE,lamB)
 
     energy_expression += switchRules
@@ -452,6 +458,8 @@ class basisSwitches(object):
         return repA*lam**4 + repB*lam**3 + repC*lam**2 + (1-repA-repB-repC)*lam
     def _square(self, lam):
         return lam**2
+    def _fourth(self, lam):
+        return lam**4
         
     def __init__(self, protocol=None):
         '''
@@ -473,7 +481,7 @@ class basisExamol(object):
     def _addAngleForceWithCustom(self, RForce, i, j):
         #Copy angle forces from the RForce to the mainAngleForce. Uses info from RAtomNubmers to map the unique angles in the RSystems to the mainSystem. Creates a custom angle force for bonds to the core where R attaches
         lamExpression = 'lam{0:s}x{1:s}B'.format(str(i), str(j))
-        energyExpression = '((1-derivMode)*%s + derivMode*%s)*0.5*k*(theta-theta0)^2;' % (lamExpression, '1')
+        energyExpression = '((1-derivMode)*{0:s} + derivMode*{1:s})*0.5*k*(theta-theta0)^2;'.format(lamExpression+'^4', '4*'+lamExpression+'^3')
         customAngleForce = mm.CustomAngleForce(energyExpression)
         customAngleForce.addGlobalParameter(lamExpression, 1)
         customAngleForce.addGlobalParameter('derivMode', 0)
@@ -495,7 +503,7 @@ class basisExamol(object):
     def _addTorsionForceWithCustom(self, RForce, i, j):
         #Copy torsion forces from the RForce to the mainTorsionForce. Uses info from RAtomNubmers to map the unique torsions in the RSystems to the mainSystem. Creates a custom torsion force for bonds to the core where R attaches
         lamExpression = 'lam{0:s}x{1:s}B'.format(str(i), str(j))
-        energyExpression = '((1-derivMode)*%s + derivMode*%s)*k*(1+cos(n*theta-theta0));' % (lamExpression, '1')
+        energyExpression = '((1-derivMode)*{0:s} + derivMode*{1:s})*k*(1+cos(n*theta-theta0));'.format(lamExpression+'^4', '4*'+lamExpression+'^3')
         customTorsionForce = mm.CustomTorsionForce(energyExpression)
         customTorsionForce.addGlobalParameter(lamExpression, 1)
         customTorsionForce.addGlobalParameter('derivMode', 0)
@@ -1662,7 +1670,7 @@ class basisExamol(object):
         defaultProtocols['skipContextUnits'] = True
         defaultProtocols['verbose'] = True
         defaultProtocols['stepsPerMCInner'] = 10
-        defaultProtocols['stepsPerMCOuter'] = 1
+        defaultProtocols['stepsPerMCOuter'] = 10
         defaultProtocols['stepsPerIteration'] = 100 #makes 1ps per write out
         defaultProtocols['nIterations'] = 10000 # Makes 10ns at default values
         if protocol is None:

@@ -60,6 +60,8 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         energy_expression = "theEnergy;"
     else:
         energy_expression = "theEnergy*includeSecond;"
+    #DEBUG:
+    energy_expression = "0;"
     switchRules = ''
     if LJ and Electro:
         energy_expression +=  "theEnergy = epsilon*(RepSwitchCappedBasis + AttSwitchBasis + CappingSwitchBasis) + electrostatics;"
@@ -1775,6 +1777,7 @@ class basisExamol(object):
                 #Recount the atom numbers to get the solvent numbers back out
                 totalN = self.mainSystem.getNumParticles()
                 soluteNAtoms = len([res for res in self.mainTopology.residues() if res.name == 'COC'][0]._atoms)
+                self.soluteNumbers = np.arange(soluteNAtoms)
                 self.solventNumbers = np.arange(soluteNAtoms,totalN)
             self.mainBondForce = getArbitraryForce(self.mainSystem, mm.HarmonicBondForce)
             self.mainAngleForce = getArbitraryForce(self.mainSystem, mm.HarmonicAngleForce)
@@ -1836,6 +1839,24 @@ class basisExamol(object):
         self.integrator = None
         self.context = None
         self.platform = None
+        #DEBUG
+        #1
+        #self.mainNonbondedForce.setNonbondedMethod(mm.NonbondedForce.CutoffPeriodic)
+        #2
+        #for forceidx in xrange(self.mainSystem.getNumForces()):
+        #    if isinstance(self.mainSystem.getForce(forceidx), mm.NonbondedForce):
+        #        self.mainSystem.removeForce(forceidx)
+        #        break
+        #3
+        #self.mainNonbondedForce.setUseDispersionCorrection(False)
+        #4
+        #forcelist = []
+        #for forceidx in xrange(self.mainSystem.getNumForces()):
+        #    if isinstance(self.mainSystem.getForce(forceidx), mm.CustomExternalForce):
+        #        forcelist.append(forceidx)
+        #for forceidx in forcelist[::-1]:
+        #    self.mainSystem.removeForce(forceidx)
+        #pdb.set_trace()
         self._buildContext()
         
         return

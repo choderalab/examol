@@ -302,7 +302,8 @@ def execute():
     crossSwitches = {'R':'fourth', 'E':'fourth', 'A':'fourth', 'C':'fourth', 'B':'fourth'}
     standardSwitches = {'B':'fourth'}
     #Without alchemical change, ts = 1.5 for optimal HMC, with alchemical change is 1.25fs
-    basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1, 'timestep':1.25*unit.femtosecond, 'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'stepsPerMCOuter':1})
+    #basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1, 'timestep':1.25*unit.femtosecond, 'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'stepsPerMCOuter':1})
+    basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol={'nIterations':2000, 'stepsPerIteration':500, 'timestep':1.5*unit.femtosecond, 'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'stepsPerMCOuter':1, 'stepsPerMCInner':10})
     #basisSim = initilizeSimulation(filename=filename, systemname=systemname, protocol={'nIterations':4})
     #context.applyConstraints(1E-6)
     #Pull the initial energy to allocte the Context__getStateAsLists call for "fair" testing, still looking into why the initial call is slow
@@ -367,19 +368,21 @@ def execute():
             E1.append(basisSim.getPotential(groups=i)/unit.kilojoules_per_mole)
         try:
             print("Debugging")
-            steps = 100
+            steps = 600
             eo = np.zeros(steps)
             en = np.zeros(steps)
             epn = np.zeros(steps)
             epo = np.zeros(steps)
             eVal = np.zeros(steps)
+            ai = np.zeros(steps)
+            ao = np.zeros(steps)
             kT=basisSim.integrator.getGlobalVariableByName('kT')
             for i in xrange(steps):
                 en[i] = basisSim.integrator.getGlobalVariableByName('EnewOuter')
                 eo[i] = basisSim.integrator.getGlobalVariableByName('EoldOuter')
                 epo[i] = basisSim.integrator.getGlobalVariableByName('EoldInnerEval')
-                #epn[i] = basisSim.integrator.getGlobalVariableByName('EoldInner')
-                epn[i] = basisSim.integrator.getGlobalVariableByName('EnewInner')
+                epn[i] = basisSim.integrator.getGlobalVariableByName('EoldInner') #Because I shuffle new->old, this is the correct value to grab for testing MC accept/reject
+                #epn[i] = basisSim.integrator.getGlobalVariableByName('EnewInner') #This is debugging value to track what inner proposed values were, not what was accepted.
                 eVal[i] = -((en[i]-eo[i])-(epn[i]-epo[i]))/kT
                 basisSim.integrator.step(1)
             deo = eo-epo
@@ -387,7 +390,6 @@ def execute():
         E0 = np.array(E0)
         E1 = np.array(E1)
         dE = E1-E0
-        pdb.set_trace()
     #timeSteps(basisSim, 1000)
     pdb.set_trace()
     basisSim.run()

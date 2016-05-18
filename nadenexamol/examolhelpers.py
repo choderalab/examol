@@ -261,7 +261,34 @@ def basisMap(lam, coupling, atC='down', lamP=None):
             lamCounter += 1
     return returns
 
-def loadnc(filename, mode='a', full=False, outputs=['energies','positions','state','MCstats','ncfile']):
+def findUniqueBasis(stage, switches):
+    '''
+    Find the unique basis functions in a given stage and set of switches
+    '''
+    nbasis = len(stage)
+    uniqueBasis = [] #Empty list to determine which basis functions are controlled by the same switch
+    for i in xrange(nbasis):
+        basisi = stage[i]
+        #Check if this basis is already a part of an entry
+        alreadyMatched = False
+        for unique in uniqueBasis:
+            if basisi in unique:
+                alreadyMatched = True
+        if not alreadyMatched:
+            uniqueBasis.append(basisi)
+        for j in xrange(i+1,nbasis):
+            basisj = stage[j]
+            if getattr(switches, basisi) == getattr(switches, basisj):
+                #Identical Basis
+                uniqueBasis[-1] += basisj #Append basisj
+                #Subract 1 because they are identical
+                #Append the idential basis to the unique entry
+                #Interupt to avoid overcounting A==B==C condition (A==B + A==C + B==C)
+                break
+    return uniqueBasis
+
+
+def loadnc(filename, mode='r', full=False, outputs=['energies','positions','state','MCstats','ncfile']):
     '''
     Load an examol.nc netCDF4, returns the netcdf file and the dictionary of entries
 

@@ -478,6 +478,179 @@ class basisSwitches(object):
         self.B = getattr(self, self.protocol['B'])
         return
 
+class basisManipulation(object):
+
+    def _countTotalBasisFunctions(self):
+        #Utility function to count up the total number of basis given the current protocols
+        basisCount = 0
+        standardBasisCount = 0 
+        crossBasisCount = 0
+        for i in xrange(self.Ni):
+            for j in xrange(self.Nj):
+                #Count the bonded basis
+                basisCount += 1
+                standardBasisCount += 1
+                for uniqueSetCount in xrange(self.standardNumBasis):
+                    #Add in the unique stages
+                    basisCount += 1
+                    standardBasisCount += 1
+                #Loop through i2/j2 interactions
+                for i2 in xrange(i+1,self.Ni): 
+                    for j2 in xrange(self.Nj): 
+                        for uniqueSetCount2 in xrange(self.crossNumBasis):
+                            #Add in the cross interactions unique counts
+                            basisCount += 1
+                            crossBasisCount += 1
+        self.standardBasisCount = standardBasisCount
+        self.crossBasisCount = crossBasisCount
+        return
+   
+    def computeSwitches(self, lamVector, flat=False):
+        '''
+        Computes the H(lambda) and H(lambda_1 * lambda_2) values for a given lambda vector. Helpful for determining what the multipliers will be for a given set of basis functions.
+       
+        The "flat" boolean determines if a flat set of switches should be returned instead of a fully expanded one.
+        '''
+        standardHValues = np.zeros([self.Ni,self.Nj,self.standardNumBasis + 1]) #Add 1 since the bonded terms are on here
+        crossHValues = np.zeros([self.Ni,self.Nj,self.Ni,self.Nj,self.crossNumBasis])
+        #Compute alchemical switches
+        standardHValues = np.zeros(standardBasis.shape)
+        crossHValues = np.zeros(crossBasis.shape)
+        for i in xrange(self.Ni):
+            for j in xrange(self.Nj):
+                lams = basisMap(lamVector[i,j], self._standardBasisCoupling)
+                standardHValues[i,j,-1] = self.standardH.B(lamVector[i,j])
+                for uniqueSetCount in xrange(self.standardNumBasis):
+                    basisSet = self._flatStandardUniqueBasis[uniqueSetCount]
+                    arbitraryBasis = basisSet[0]
+                    arbitraryLam = lams[arbitraryBasis]
+                    standardHValues[i,j,uniqueSetCount] = getattr(self.standardH, arbitraryBasis)(arbitraryLam)
+                for i2 in xrange(i+1,self.Ni): #no need to loop backwards, otherwise will double up on energy calculations
+                    for j2 in xrange(self.Nj): #All j affected, just not same i
+                        lamsij = basisMap(lamVector[i,j], self._crossBasisCoupling)
+                        lamsij2 = basisMap(lamVector[i2,j2], self._crossBasisCoupling)
+                        for uniqueSetCount2 in xrange(self.crossNumBasis):
+                            basisSet2 = self._flatCrossUniqueBasis[uniqueSetCount2]
+                            arbitraryBasis2 = basisSet2[0]
+                            arbitraryLamij = lamsij[arbitraryBasis2]
+                            arbitraryLamij2 = lamsij2[arbitraryBasis2]
+                            arbitraryCrossLam = arbitraryLamij*arbitraryLamij2
+                            crossHValues[i,j,i2,j2,uniqueSetCount2] = getattr(self.crossH, arbitraryBasis2)(arbitraryCrossLam)
+        if flat:
+            standardHValues = self.flattenBasis(standardHValues)
+            crossHValues = self.flattenBasis(crossHValues)
+        return standardHValues, crossHValues 
+
+    def computeArbitraryAlchemicalEnergy(self, basis, lamVector, derivative=False, provideHValues=False):
+        '''
+        Compute the potential energy at an arbitary alchemical state defined by 'lamVector'. Assumes current lambda if not passed in.
+        If the basis functions are already known, then they are fed in with 'basis', otherwise, they are computed from the computeBasisEnergy block
+
+        lamVector : list of floats len(lamVector)= Ni*Nj OR ndarray of floats of (lamVector.shape = Ni*Nj or lamVector.shape = [Ni,Nj])
+        basis : dict with entries returned from computeBasisEnergy
+        derivative : bool, if True, returnes dU/dL instead of just U
+        provideHValues: bool, if true, the 'standardHValues' and the 'crossHValues' will be returned as keys in the potential energy
+        '''
+
+        if isinstance(lamVector, list):
+            lamVector = np.array(lamVector)
+        lamVector = lamVector.reshape((self.Ni,self.Nj))
+        standardBasis = basis['standardBasis']
+        crossBasis = basis['crossBasis']
+        unaffectedPotential = basis['unaffectedPotential']
+        if derivative:
+            raise Exception("Still working on it")
+        standardHValues, crossHValues = self.computeSwitches(lamVector)
+        returns = {}
+        if provideHValues:
+            returns['standardHValues'] = standardHValues
+            returns['crossHValues'] = crossHValues
+        basisPotential = np.sum(standardBasis * standardHValues) + np.sum(crossBasis * crossHValues)
+        basisPotential += unaffectedPotential
+        basisPotential += basis['harmonicBias']
+        basisPotential += basis['freeEnergyBias']
+        returns['potential'] = basisPotential
+        return returns
+
+    def expandBasis(self, flatBasis):
+        #Helper function to unravel a flat, non-zero array into the the basis array indexed by i, j, i2, and j2
+        #Accepts either flatStandard or flatCross and determines based on size
+        #Consider moving this to helpers
+        counter = 0
+        #Strip units
+        hasUnit = False
+        if isinstance(flatBasis, unit.Quantity):
+            hasUnit = True
+            basisUnit = flatBasis.unit
+            flatBasis /= basisUnit
+        if flatBasis.size == self.standardBasisCount:
+            output = flatBasis.reshape(self.Ni, self.Nj, self.standardNumBasis + 1)
+        elif flatBasis.size == self.crossBasisCount:
+            output = np.zeros([self.Ni,self.Nj,self.Ni,self.Nj,self.crossNumBasis])
+            for i in xrange(self.Ni):
+                for j in xrange(self.Nj):
+                    for i2 in xrange(i+1,self.Ni): 
+                        for j2 in xrange(self.Nj): 
+                            for uniqueSetCount2 in xrange(self.crossNumBasis):
+                                output[i,j,i2,j2,uniqueSetCount2] = flatBasis[counter]
+                                counter += 1
+        if hasUnit:
+            output *= basisUnit
+        return output
+
+    def flattenBasis(self, basis):
+        '''
+        Remove all the excess zeros from the cross basis and return a flat array
+        Consider moving this to helpers
+        '''
+        hasUnit = False
+        if isinstance(basis, unit.Quantity):
+            hasUnit = True
+            basisUnit = basis.unit
+            basis /= basisUnit
+        if basis.ndim == 3:
+            output = basis.flatten()
+        elif basis.ndim == 5:
+            output = np.zeros([self.crossBasisCount])
+            counter = 0
+            for i in xrange(self.Ni):
+                for j in xrange(self.Nj):
+                    for i2 in xrange(i+1,self.Ni): 
+                        for j2 in xrange(self.Nj): 
+                            for uniqueSetCount2 in xrange(self.crossNumBasis):
+                                output[counter] = basis[i,j,i2,j2,uniqueSetCount2]
+                                counter += 1
+        if hasUnit:
+            output *= basisUnit
+        return output
+
+    def __init__(self, Ni, Nj, standardSwitches, standardBasisCoupling, crossSwitches, crossBasisCoupling):
+        '''
+        This class manipulates the basis outputs (flatten/expanding) and allows computation at arbitrary alchemical energy
+        It was split off from the main basisExamol class as the analysis code would need it also.
+        This class also handles the various counts of basis functions needed by the basisExamol and analysis
+        '''
+        self.Ni = Ni
+        self.Nj = Nj
+        self.standardH = basisSwitches(protocol=standardSwitches)
+        self.crossH = basisSwitches(protocol=crossSwitches)
+        self._standardBasisCoupling = standardBasisCoupling
+        self._crossBasisCoupling = crossBasisCoupling
+        #Set some constants, handling counting now for book keeping later.
+        self.standardUniqueBasis = [findUniqueBasis(stage, self.standardH) for stage in self._standardBasisCoupling]
+        self.crossUniqueBasis = [findUniqueBasis(stage, self.crossH) for stage in self._crossBasisCoupling]
+        self.standardBasisPerStage = [len(stage) for stage in self.standardUniqueBasis]
+        self.standardNumBasis = np.sum(np.array(self.standardBasisPerStage))
+        self.crossBasisPerStage = [len(stage) for stage in self.crossUniqueBasis]
+        self.crossNumBasis = np.sum(np.array(self.crossBasisPerStage))
+        #Flatten the unique lists for computing energies later
+        self._flatStandardUniqueBasis = list(itertools.chain.from_iterable(self.standardUniqueBasis))
+        self._flatCrossUniqueBasis = list(itertools.chain.from_iterable(self.crossUniqueBasis))
+        #Count total unique basis
+        self._countTotalBasisFunctions()
+
+        return
+
 class basisExamol(object):
 
     def _addAngleForceWithCustom(self, RForce, i, j):
@@ -882,31 +1055,6 @@ class basisExamol(object):
                     self.mainNonbondedForce.addException(self.solventNumbers[atomi], self.solventNumbers[atomj], chargeProd, sig, epsi)
         return
 
-    def _findUniqueBasis(self, stage, switches):
-        '''
-        Find the unique basis functions in a given stage and set of switches
-        '''
-        nbasis = len(stage)
-        uniqueBasis = [] #Empty list to determine which basis functions are controlled by the same switch
-        for i in xrange(nbasis):
-            basisi = stage[i]
-            #Check if this basis is already a part of an entry
-            alreadyMatched = False
-            for unique in uniqueBasis:
-                if basisi in unique:
-                    alreadyMatched = True
-            if not alreadyMatched:
-                uniqueBasis.append(basisi)
-            for j in xrange(i+1,nbasis):
-                basisj = stage[j]
-                if getattr(switches, basisi) == getattr(switches, basisj):
-                    #Identical Basis
-                    uniqueBasis[-1] += basisj #Append basisj
-                    #Subract 1 because they are identical
-                    #Append the idential basis to the unique entry
-                    #Interupt to avoid overcounting A==B==C condition (A==B + A==C + B==C)
-                    break
-        return uniqueBasis
 
     def updateFreeEnergyBias(self, freeEnergies, knotMultiplier = 1):
         '''
@@ -1011,7 +1159,7 @@ class basisExamol(object):
                 if self.pressure is not None:
                     print("The Hybrid LDMC Integrator is coded to to NVT simulations, not NPT!")
                     raise(Exception)
-                self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep, stepsPerMCInner = self.stepsPerMCInner, stepsPerMCOuter = self.stepsPerMCOuter)
+                self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep, stepsPerMCInner = self.stepsPerMCInner, stepsPerMCOuter = self.stepsPerMCOuter, lamMasses = self.protocol['lamMasses'])
                 self.integrator = self.integratorEngine.integrator
                 #hybrid LDMC runs NVE MD with NVT sampling at MC step
                 thermostat = False
@@ -1037,12 +1185,15 @@ class basisExamol(object):
         if self.context is not None:
             print "Cannot make new Platform with existing context!"
         else:
-            self.platform = mm.Platform.getPlatformByName(self.protocol['platform'])
+            platformName = self.protocol['platform']
+            deviceIndex = self.protocol['devIndex']
+            self.platform = mm.Platform.getPlatformByName(platformName)
+            self.platform.setPropertyDefaultValue(platformName+'DeviceIndex', str(deviceIndex))
         return
 
-    def _buildContext(self,provideContext=False):
+    def _buildContext(self,provideContext=False, force=False):
         if self.context is not None:
-            print "Context already made!"
+            print "Context already made! Use the \"force=True\" keyword to rebuild it!"
             return
         if self.integrator is None:
             if self.verbose: print("Building Integrator") 
@@ -1153,64 +1304,6 @@ class basisExamol(object):
             groups = -1
         return self.context.getState(enforcePeriodicBox=False,getEnergy=True,groups=groups).getPotentialEnergy()
 
-    def computeArbitraryAlchemicalEnergy(self, lamVector=None, basis=None, derivative=False, provideHValues=False):
-        '''
-        Compute the potential energy at an arbitary alchemical state defined by 'lamVector'. Assumes current lambda if not passed in.
-        If the basis functions are already known, then they are fed in with 'basis', otherwise, they are computed from the computeBasisEnergy block
-
-        lamVector : list of floats len(lamVector)= Ni*Nj OR ndarray of floats of (lamVector.shape = Ni*Nj or lamVector.shape = [Ni,Nj])
-        basis : dict with entries returned from computeBasisEnergy
-        derivative : bool, if True, returnes dU/dL instead of just U
-        provideHValues: bool, if true, the 'standardHValues' and the 'crossHValues' will be returned as keys in the potential energy
-        '''
-
-        if lamVector is None:
-            lamVector = self.getLambda()
-        else:
-            if isinstance(lamVector, list):
-                lamVector = np.array(lamVector)
-            lamVector = lamVector.reshape((self.Ni,self.Nj))
-        if basis is None:
-            basis = self.computeBasisEnergy()
-        standardBasis = basis['standardBasis']
-        crossBasis = basis['crossBasis']
-        unaffectedPotential = basis['unaffectedPotential']
-        if derivative:
-            raise Exception("Still working on it")
-        #Compute alchemical switches
-        standardHValues = np.zeros(standardBasis.shape)
-        crossHValues = np.zeros(crossBasis.shape)
-        for i in xrange(self.Ni):
-            for j in xrange(self.Nj):
-                lams = basisMap(lamVector[i,j], self.protocol['standardBasisCoupling'])
-                standardHValues[i,j,-1] = self.standardH.B(lamVector[i,j])
-                for uniqueSetCount in xrange(self.standardNumBasis):
-                    basisSet = self._flatStandardUniqueBasis[uniqueSetCount]
-                    arbitraryBasis = basisSet[0]
-                    arbitraryLam = lams[arbitraryBasis]
-                    standardHValues[i,j,uniqueSetCount] = getattr(self.standardH, arbitraryBasis)(arbitraryLam)
-                for i2 in xrange(i+1,self.Ni): #no need to loop backwards, otherwise will double up on energy calculations
-                    for j2 in xrange(self.Nj): #All j affected, just not same i
-                        lamsij = basisMap(lamVector[i,j], self.protocol['crossBasisCoupling'])
-                        lamsij2 = basisMap(lamVector[i2,j2], self.protocol['crossBasisCoupling'])
-                        for uniqueSetCount2 in xrange(self.crossNumBasis):
-                            basisSet2 = self._flatCrossUniqueBasis[uniqueSetCount2]
-                            arbitraryBasis2 = basisSet2[0]
-                            arbitraryLamij = lamsij[arbitraryBasis2]
-                            arbitraryLamij2 = lamsij2[arbitraryBasis2]
-                            arbitraryCrossLam = arbitraryLamij*arbitraryLamij2
-                            crossHValues[i,j,i2,j2,uniqueSetCount2] = getattr(self.crossH, arbitraryBasis2)(arbitraryCrossLam)
-        returns = {}
-        if provideHValues:
-            returns['standardHValues'] = standardHValues
-            returns['crossHValues'] = crossHValues
-        basisPotential = np.sum(standardBasis * standardHValues) + np.sum(crossBasis * crossHValues)
-        basisPotential += unaffectedPotential
-        basisPotential += basis['harmonicBias']
-        basisPotential += basis['freeEnergyBias']
-        returns['potential'] = basisPotential
-        return returns
-
     def computeBasisEnergy(self):
         '''
         Compute all the basis function energies given a context, sites, and molecules per site.
@@ -1227,8 +1320,8 @@ class basisExamol(object):
         standardParameter = 'lam{i:s}x{j:s}{b:s}'
         crossParameter = 'lam{i:s}x{j:s}x{i2:s}x{j2:s}{b:s}'
         #Determine the number of basis functions per stage
-        rijSolvBasis = np.zeros([self.Ni,self.Nj,self.standardNumBasis + 1]) * unit.kilojoules_per_mole #Add 1 since the bonded terms are on here
-        rijRij2Basis = np.zeros([self.Ni,self.Nj,self.Ni,self.Nj,self.crossNumBasis]) * unit.kilojoules_per_mole
+        rijSolvBasis = np.zeros([self.Ni,self.Nj,self.basisManipulator.standardNumBasis + 1]) * unit.kilojoules_per_mole #Add 1 since the bonded terms are on here
+        rijRij2Basis = np.zeros([self.Ni,self.Nj,self.Ni,self.Nj,self.basisManipulator.crossNumBasis]) * unit.kilojoules_per_mole
         #Create blank structured numpy array (behaves similar to an array of dictionary objects)
         blankLamVector = np.zeros([self.Ni, self.Nj], dtype={'names':['E','C','R','A','B',], 'formats':['f','f','f','f','f']})
         #Get current total potential and state
@@ -1263,9 +1356,9 @@ class basisExamol(object):
                 self.context.setParameter(standardParameter.format(i=str(i), j=str(j), b='B'), 1)
                 rijSolvBasis[i,j,-1] = self.getPotential(groups=groups)
                 self.context.setParameter(standardParameter.format(i=str(i), j=str(j), b='B'), 0)
-                for uniqueSetCount in xrange(self.standardNumBasis):
+                for uniqueSetCount in xrange(self.basisManipulator.standardNumBasis):
                     #Grab the unique basis functions
-                    basisSet = self._flatStandardUniqueBasis[uniqueSetCount]
+                    basisSet = self.basisManipulator._flatStandardUniqueBasis[uniqueSetCount]
                     #Set the switch, we only need to grab one of the lambdas since they are the same function
                     for basis in basisSet:
                         self.context.setParameter(standardParameter.format(i=str(i), j=str(j), b=basis), 1)
@@ -1278,8 +1371,8 @@ class basisExamol(object):
                         #groups = self.groupFlag(forceGroupII)
                         #groups = forceGroupII
                         groups = self.calcGroup(i,j,i2,j2)
-                        for uniqueSetCount2 in xrange(self.crossNumBasis):
-                            basisSet2 = self._flatCrossUniqueBasis[uniqueSetCount2]
+                        for uniqueSetCount2 in xrange(self.basisManipulator.crossNumBasis):
+                            basisSet2 = self.basisManipulator._flatCrossUniqueBasis[uniqueSetCount2]
                             for basis in basisSet2:
                                 self.context.setParameter(crossParameter.format(i=str(i), j=str(j), i2=str(i2), j2=str(j2), b=basis), 1)
                             rijRij2Basis[i,j,i2,j2,uniqueSetCount2] = self.getPotential(groups=groups)
@@ -1300,7 +1393,7 @@ class basisExamol(object):
         returns['totalPotential'] = currentPotential
 
         #Ensure total energy = bais function energy. This is a debug sanity check
-        basisPotential = self.computeArbitraryAlchemicalEnergy(lamVector=currentLambda, basis=returns)['potential']
+        basisPotential = self.basisManipulator.computeArbitraryAlchemicalEnergy(returns, currentLambda)['potential']
         tolerance = 10**-2 #kJ/mol
         err = np.abs((currentPotential - basisPotential)/unit.kilojoules_per_mole)
         if err >= tolerance:
@@ -1314,84 +1407,6 @@ class basisExamol(object):
         self.context.setParameter('singleSwitchMode', currentSingleSwitchMode) 
         #Bundle energies
         return returns
-
-    def _countTotalBasisFunctions(self):
-        #Utility function to count up the total number of basis given the current protocols
-        basisCount = 0
-        standardBasisCount = 0 
-        crossBasisCount = 0
-        for i in xrange(self.Ni):
-            for j in xrange(self.Nj):
-                #Count the bonded basis
-                basisCount += 1
-                standardBasisCount += 1
-                for uniqueSetCount in xrange(self.standardNumBasis):
-                    #Add in the unique stages
-                    basisCount += 1
-                    standardBasisCount += 1
-                #Loop through i2/j2 interactions
-                for i2 in xrange(i+1,self.Ni): 
-                    for j2 in xrange(self.Nj): 
-                        for uniqueSetCount2 in xrange(self.crossNumBasis):
-                            #Add in the cross interactions unique counts
-                            basisCount += 1
-                            crossBasisCount += 1
-        self.totalBasis = basisCount
-        self.standardBasisCount = standardBasisCount
-        self.crossBasisCount = crossBasisCount
-        return
-    
-    def expandBasis(self, flatBasis):
-        #Helper function to unravel a flat, non-zero array into the the basis array indexed by i, j, i2, and j2
-        #Accepts either flatStandard or flatCross and determines based on size
-        #Consider moving this to helpers
-        counter = 0
-        #Strip units
-        hasUnit = False
-        if isinstance(flatBasis, unit.Quantity):
-            hasUnit = True
-            basisUnit = flatBasis.unit
-            flatBasis /= basisUnit
-        if flatBasis.size == self.standardBasisCount:
-            output = flatBasis.reshape(self.Ni, self.Nj, self.standardNumBasis + 1)
-        elif flatBasis.size == self.crossBasisCount:
-            output = np.zeros([self.Ni,self.Nj,self.Ni,self.Nj,self.crossNumBasis])
-            for i in xrange(self.Ni):
-                for j in xrange(self.Nj):
-                    for i2 in xrange(i+1,self.Ni): 
-                        for j2 in xrange(self.Nj): 
-                            for uniqueSetCount2 in xrange(self.crossNumBasis):
-                                output[i,j,i2,j2,uniqueSetCount2] = flatBasis[counter]
-                                counter += 1
-        if hasUnit:
-            output *= basisUnit
-        return output
-
-    def flattenBasis(self, basis):
-        '''
-        Remove all the excess zeros from the cross basis and return a flat array
-        Consider moving this to helpers
-        '''
-        hasUnit = False
-        if isinstance(basis, unit.Quantity):
-            hasUnit = True
-            basisUnit = basis.unit
-            basis /= basisUnit
-        if basis.ndim == 3:
-            output = basis.flatten()
-        elif basis.ndim == 5:
-            output = np.zeros([self.crossBasisCount])
-            counter = 0
-            for i in xrange(self.Ni):
-                for j in xrange(self.Nj):
-                    for i2 in xrange(i+1,self.Ni): 
-                        for j2 in xrange(self.Nj): 
-                            for uniqueSetCount2 in xrange(self.crossNumBasis):
-                                output[counter] = basis[i,j,i2,j2,uniqueSetCount2]
-                                counter += 1
-        if hasUnit:
-            output *= basisUnit
-        return output
 
     def _loadCoordinates(self, data, iteration=-1):
         '''
@@ -1455,6 +1470,8 @@ class basisExamol(object):
                     protoValue = dict([ (protoValue[i,0],protoValue[i,1]) for i in xrange(protoValue.shape[0]) ])
                 elif protoType == 'str':
                     protoValue = str(protoValue)
+                elif protoType == 'ndarray':
+                    protoValue = protoValue.reshape([self.Ni,self.Nj])
                 elif protoType == 'NoneType':
                     protoValue = None
                 else:
@@ -1486,8 +1503,8 @@ class basisExamol(object):
         ncfile.createDimension('particle', self.nParticles) # number of atoms in system
         ncfile.createDimension('spatial', 3) # number of spatial dimensions
         ncfile.createDimension('lambda', self.Ni*self.Nj) # number of alchemical/lambda Dimentions
-        ncfile.createDimension('standard', self.standardBasisCount) # number of standard basis functions
-        ncfile.createDimension('cross', self.crossBasisCount) # number of cross functions
+        ncfile.createDimension('standard', self.basisManipulator.standardBasisCount) # number of standard basis functions
+        ncfile.createDimension('cross', self.basisManipulator.crossBasisCount) # number of cross functions
         ncfile.createDimension('biases', 2) # Number of Biases, Harmonic and Free Energy
         ncfile.createDimension('iterableLen', 0) # arbitrary iterable length
         ncfile.createDimension('dict', 2) # Dictionary variable, stores key:value
@@ -1537,6 +1554,12 @@ class basisExamol(object):
         ncgrp_MC = ncfile.createGroup('MCStats')
         ncgrp_MC.createVariable('naccept', int, ('iteration',))
         ncgrp_MC.createVariable('ntrials', int, ('iteration',))
+
+        #Create some helpful constants to pass along
+        ncvar_Ni = ncfile.createVariable('Ni', int)
+        ncvar_Ni[0] = self.Ni
+        ncvar_Nj = ncfile.createVariable('Nj', int)
+        ncvar_Nj[0] = self.Nj
  
         #Create group of constants
         ncgrp_proto = ncfile.createGroup('protocols')
@@ -1565,6 +1588,9 @@ class basisExamol(object):
                 ncvar = ncgrp_proto.createVariable(protoName, str)
                 protocol = '---'.join(protocol)
                 ncvar[0] = protocol
+            elif protoType is np.ndarray:
+                ncvar = ncgrp_proto.createVariable(protoName, protocol.dtype, ('lambda'))
+                ncvar[:] = protocol.flatten()
             else:
                 ncvar = ncgrp_proto.createVariable(protoName, protoType)
                 ncvar[0] = protocol
@@ -1594,8 +1620,8 @@ class basisExamol(object):
         self.ncfile.groups['energies'].variables['unaffected'][self.iteration] = energies['unaffectedPotential']/self.kT
         self.ncfile.groups['energies'].variables['bias'][self.iteration, 0] = energies['harmonicBias']/self.kT
         self.ncfile.groups['energies'].variables['bias'][self.iteration, 1] = energies['freeEnergyBias']/self.kT
-        self.ncfile.groups['energies'].variables['standardBasis'][self.iteration, :] = self.flattenBasis(energies['standardBasis']/self.kT)
-        self.ncfile.groups['energies'].variables['crossBasis'][self.iteration, :] = self.flattenBasis(energies['crossBasis']/self.kT)
+        self.ncfile.groups['energies'].variables['standardBasis'][self.iteration, :] = self.basisManipulator.flattenBasis(energies['standardBasis']/self.kT)
+        self.ncfile.groups['energies'].variables['crossBasis'][self.iteration, :] = self.basisManipulator.flattenBasis(energies['crossBasis']/self.kT)
 
         #Store box volumes:
         self.boxVectors = state.getPeriodicBoxVectors(asNumpy=True)
@@ -1675,6 +1701,8 @@ class basisExamol(object):
         defaultProtocols['stepsPerMCOuter'] = 10
         defaultProtocols['stepsPerIteration'] = 100 #makes 1ps per write out
         defaultProtocols['nIterations'] = 10000 # Makes 10ns at default values
+        defaultProtocols['lamMasses'] = None
+        defaultProtocols['devIndex'] = 0 #Device index for multiple walkers
         if protocol is None:
             self.protocol = defaultProtocols
         else:
@@ -1694,7 +1722,7 @@ class basisExamol(object):
                 self.protocol = defaultProtocols
         return
 
-    def __init__(self, Ni, Nj, ff, protocol=None, equilibrate=False, filename='examol.nc', systemname='examolsystem.xml', eqfile='examoleq.nc', coordsFromFile=None):
+    def __init__(self, Ni, Nj, ff, protocol=None, equilibrate=False, filename='examol.nc', systemname='examolsystem.xml', eqfile='examoleq.nc', coordsFromFile=None, filedebug=False, sysdebug=False):
         self.Ni = Ni
         self.Nj = Nj
         self.ff = ff
@@ -1717,7 +1745,7 @@ class basisExamol(object):
         self.systemname = systemname
         #Resume Functionality
         self.coordsLoaded = False 
-        if os.path.isfile(self.filename):
+        if os.path.isfile(self.filename) and not filedebug:
             self.resume = True
             self.coordsLoaded = True
             self._resumeFromFile()
@@ -1743,31 +1771,15 @@ class basisExamol(object):
                     print("Loading coordinates and box vectors from final frame of {0:s}".format(coordsFromFile))
                 self.coordsLoaded = True
                 self._loadCoordinates(coordsFromFile)
-        #H_lambda switches
-        self.standardH = basisSwitches(protocol=self.protocol['standardSwitches'])
-        self.crossH = basisSwitches(protocol=self.protocol['crossSwitches'])
-        #Set some constants, handling counting now for book keeping later.
-        self.standardUniqueBasis = [self._findUniqueBasis(stage, self.standardH) for stage in self.protocol['standardBasisCoupling']]
-        self.crossUniqueBasis = [self._findUniqueBasis(stage, self.crossH) for stage in self.protocol['crossBasisCoupling']]
-        self.standardBasisPerStage = [len(stage) for stage in self.standardUniqueBasis]
-        self.standardNumBasis = np.sum(np.array(self.standardBasisPerStage))
-        self.crossBasisPerStage = [len(stage) for stage in self.crossUniqueBasis]
-        self.crossNumBasis = np.sum(np.array(self.crossBasisPerStage))
-        #Flatten the unique lists for computing energies later
-        self._flatStandardUniqueBasis = list(itertools.chain.from_iterable(self.standardUniqueBasis))
-        self._flatCrossUniqueBasis = list(itertools.chain.from_iterable(self.crossUniqueBasis))
-        #Count total unique basis
-        self._countTotalBasisFunctions()
+        #Build the basisManipulation object. Handles counting, flattening, and expansion of basis function objects used to organize basis energies and handle switch multiplication
+        self.basisManipulator = basisManipulation(self.Ni, self.Nj, self.protocol['standardSwitches'], self.protocol['standardBasisCoupling'], self.protocol['crossSwitches'], self.protocol['crossBasisCoupling'])
         #Load the core, we wont be using it in base form for long
         coreSystem, self.corecoords = self.loadpdb('pdbfiles/core/corec')
         self.corePositions = self.corecoords.getPositions(asNumpy=True) #Positions of core atoms (used for alignment)
         self.Ncore = coreSystem.getNumParticles()
-        '''
-        Start mainSystem
-
-        Note: The mainSystem is NOT built from the combined topologies because that would add torsions and angle forces to R-groups on the same core carbon, which we wond want.
-        '''
-        if os.path.isfile(self.systemname):
+        #Start mainSystem
+        #Note: The mainSystem is NOT built from the combined topologies because that would add torsions and angle forces to R-groups on the same core carbon, which we wond want.
+        if os.path.isfile(self.systemname) and not sysdebug:
             if self.verbose: print("Rebuilding System from file!")
             with open(self.systemname, 'r') as systemfile:
                 self.mainSystem = mm.XmlSerializer.deserialize(systemfile.read())
@@ -1833,7 +1845,8 @@ class basisExamol(object):
         if not self.resume:
             #Set the iterations:
             self.iteration = 0
-            self._initilizeNetCDF()
+            if not filedebug:
+                self._initilizeNetCDF()
         #Initilize objects
         self.barostat = None
         self.integrator = None

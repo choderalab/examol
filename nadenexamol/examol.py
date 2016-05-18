@@ -206,6 +206,92 @@ def timeEnergy(sim):
     ps.print_stats()
     print s.getvalue()
 
+def sensitivityChecks(dicts=None):
+    #Set default protocols
+    defProto = {}
+    if dicts is not None:
+        for key in dicts.keys():
+            defProto[key] = dicts[key]
+    Ni=3
+    Nj=10
+    numTimeSteps = 1000
+    stockLam = np.array([0.1]*(Ni*Nj))
+    stockLam = stockLam.reshape([Ni,Nj])
+    fs = unit.femtosecond
+    lm = unit.amu * unit.angstrom**2
+    comb = []
+    natomsperR = np.array([[1, 2, 4, 7, 3, 1, 1, 11, 3, 9],
+                           [1, 2, 4, 7, 3, 1, 1, 11, 3, 9],
+                           [1, 2, 4, 7, 3, 1, 1, 11, 3, 9]], dtype=int)
+    meanParticles = natomsperR.sum()/float(natomsperR.size)
+    timesteps = (1.25*fs, 1.5*fs, 1.75*fs, 2.0*fs)
+    baseMass = (50*lm, 100*lm, 500*lm)
+    propMass = (False, True)
+    stepsPerMCOuter = (1, 5, 10)
+    stepsPerMCInner = (1, 5, 10, 50)
+
+    #timesteps = (1.5*fs,)
+    #baseMass = (500*lm,)
+    #propMass = (False, True)
+    #stepsPerMCInner = (10,)
+    #stepsPerMCOuter = (1,)
+    fileline = '{ts:.2f}    {baseMass:f}    {propMass}    {stepsPerMCOuter:d}    {stepsPerMCInner:d}    {wallClock:f}    {acceptOuter:f}/{acceptInner:f}    {deltaLamPerTimeStep:f}\n'
+    nPerm = len(timesteps)*len(baseMass)*len(propMass)*len(stepsPerMCInner)*len(stepsPerMCOuter)
+    accepts = {}
+    deltaLam = {}
+    times = {}
+    counter = 1
+    for timestep in timesteps:
+        for mass in baseMass:
+            for prop in propMass:
+                for spmco in stepsPerMCOuter:
+                    for spmci in stepsPerMCInner:
+                        if counter > 153:
+                            nSteps = numTimeSteps/(spmci*spmco)
+                            print("Working on combo {0:d}/{1:d} ({2:f}%)".format(counter, nPerm, counter/float(nPerm)))
+                            comb.append((timestep, mass, prop, spmci, spmco))
+                            print comb[-1]
+                            proto = {}
+                            for key in defProto.keys(): proto[key] = defProto[key]
+                            proto['stepsPerMCInner'] = spmci
+                            proto['stepsPerMCOuter'] = spmco
+                            proto['timestep'] = timestep
+                            masses =  np.empty([Ni,Nj],dtype=float)
+                            masses.fill(mass.value_in_unit(unit.amu * unit.nanometer**2))
+                            if mass is True:
+                                #Using % of the mean, figuring out finer details will come later
+                                masses*(natomsperR/meanParticles)
+                            proto['lamMasses'] = masses
+                            #try:
+                            if True:
+                                sim = initilizeSimulation(filename='scratch.nc', systemname='examolsystem4th.xml', filedebug=True, coordsFromFile='examoleqNVT.nc', protocol=proto)
+                                sim.assignLambda(stockLam)
+                                #Time
+                                pr = cProfile.Profile()
+                                pr.enable()
+                                sim.integrator.step(nSteps)
+                                pr.disable()
+                                s = StringIO.StringIO()
+                                sortby = 'cumulative'
+                                ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+                                ps.print_stats()
+                                #Get the time of the run
+                                with open('sens.txt', 'a') as sens:
+                                    times[comb[-1]] = float(s.getvalue().split('\n')[0].split()[-2])
+                                    accepts[comb[-1]] = sim.integratorEngine.acceptance_rate
+                                    newLam = sim.getLambda()
+                                    deltaLam[comb[-1]] = np.sum((newLam-stockLam)**2)/numTimeSteps
+                                    sens.write(fileline.format(ts=timestep._value, baseMass=mass._value, propMass=prop, stepsPerMCOuter=spmco, stepsPerMCInner=spmci, wallClock=times[comb[-1]], acceptOuter=accepts[comb[-1]][0], acceptInner=accepts[comb[-1]][1], deltaLamPerTimeStep=deltaLam[comb[-1]]))
+                                #Cleanup
+                                del sim.context, sim.integrator
+                                del sim
+                            #except:
+                            #    pass
+                        counter += 1
+    pdb.set_trace()
+    return
+
+
 def initilizeSimulation(**kwargs):
     '''
     Create the simulation object
@@ -303,6 +389,8 @@ def execute():
     standardSwitches = {'B':'fourth'}
     #Without alchemical change, ts = 1.5 for optimal HMC, with alchemical change is 1.25fs
     #basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1, 'timestep':1.25*unit.femtosecond, 'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'stepsPerMCOuter':1})
+    sensitivityChecks(dicts={'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'nIterations':1, 'stepsPerIteration':1, 'devIndex':1})
+     
     basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol={'nIterations':2000, 'stepsPerIteration':500, 'timestep':1.5*unit.femtosecond, 'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'stepsPerMCOuter':1, 'stepsPerMCInner':10})
     #basisSim = initilizeSimulation(filename=filename, systemname=systemname, protocol={'nIterations':4})
     #context.applyConstraints(1E-6)

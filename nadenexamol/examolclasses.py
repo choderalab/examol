@@ -5,6 +5,7 @@ import simtk.openmm as mm
 from simtk.openmm import app
 from copy import deepcopy
 from sys import stdout
+import os
 import os.path
 import itertools
 from scipy.interpolate import UnivariateSpline
@@ -504,6 +505,13 @@ class basisManipulation(object):
         self.standardBasisCount = standardBasisCount
         self.crossBasisCount = crossBasisCount
         return
+
+    def castLamVector(self, lamVector):
+        #Formatting function
+        if isinstance(lamVector, list):
+            lamVector = np.array(lamVector)
+        lamVector = lamVector.reshape((self.Ni,self.Nj))
+        return lamVector
    
     def computeSwitches(self, lamVector, flat=False):
         '''
@@ -511,6 +519,7 @@ class basisManipulation(object):
        
         The "flat" boolean determines if a flat set of switches should be returned instead of a fully expanded one.
         '''
+        lamVector = self.castLamVector(lamVector)
         standardHValues = np.zeros([self.Ni,self.Nj,self.standardNumBasis + 1]) #Add 1 since the bonded terms are on here
         crossHValues = np.zeros([self.Ni,self.Nj,self.Ni,self.Nj,self.crossNumBasis])
         #Compute alchemical switches
@@ -551,10 +560,8 @@ class basisManipulation(object):
         derivative : bool, if True, returnes dU/dL instead of just U
         provideHValues: bool, if true, the 'standardHValues' and the 'crossHValues' will be returned as keys in the potential energy
         '''
-
-        if isinstance(lamVector, list):
-            lamVector = np.array(lamVector)
-        lamVector = lamVector.reshape((self.Ni,self.Nj))
+        
+        lamVector = self.castLamVector(lamVector)
         standardBasis = basis['standardBasis']
         crossBasis = basis['crossBasis']
         unaffectedPotential = basis['unaffectedPotential']
@@ -1078,11 +1085,6 @@ class basisExamol(object):
 
         OpenMM interpolates between all points, does not use any smoothing, so UnivariateSpline(s=0), may want to use that.
         '''
-        if self.context is None:
-            print "Cannot update Free Energies with no Context!"
-            raise(Exception)
-        #Extract all the parameters/values needed to rebuild the context.
-        state = self.context.getState(getPositions = True, getVelocities = True, getForces = True, getEnergy = True, getParameters = True, enforcePeriodicBox=False)
         freeEnergyUTabs = self.freeEnergyTabs['potential']
         freeEnergyFTabs = self.freeEnergyTabs['force']
         #Determine spline sizes
@@ -1093,15 +1095,18 @@ class basisExamol(object):
             for j in xrange(self.Nj):
                 #Build Spline
                 spline = UnivariateSpline(x, freeEnergy[i,j,:], s=0)
-                y = spline(xMM)
-                dy = spline(xMM,1)
+                y = spline(xMM)*self.Kt
+                dy = spline(xMM,1)*self.kT
                 #Update free energy tabulated functions
                 freeEnergyUTabs.setFunctionParameters(y, 0, 1)
                 freeEnergyFTabs.setFunctionParameters(dy, 0, 1)
-        #Rebuild context
-        self.context.reinitialize()
-        #Restore state now that the context has been rebuilt
-        self.context.setState(state)
+        if self.context is not None:
+            #Extract all the parameters/values needed to rebuild the context.
+            state = self.context.getState(getPositions = True, getVelocities = True, getForces = True, getEnergy = True, getParameters = True, enforcePeriodicBox=False)
+            #Rebuild context
+            self.context.reinitialize()
+            #Restore state now that the context has been rebuilt
+            self.context.setState(state)
         return
 
     def getLambda(self, flat=False):
@@ -1667,6 +1672,15 @@ class basisExamol(object):
             #Store information
             self.writeIteration()
 
+            #Update Bias
+            try:
+                lasttime = os.stat('FEBias.npy')
+                if lasttime > self._lastKnownTime:
+                    FEBias = np.load('FEBias.npy')
+                    self.updateFreeEnergyBias(FEBias)
+            except:
+                pass
+           
             #Increment iteration
             self.iteration += 1
 
@@ -1870,6 +1884,13 @@ class basisExamol(object):
         #for forceidx in forcelist[::-1]:
         #    self.mainSystem.removeForce(forceidx)
         #pdb.set_trace()
+        #Load the FE biases
+        try:
+            self._lastKnownTime = os.stat('FEBias.npy').st_mtime
+            FEBias = np.load('FEBias.npy')
+            self.updateFreeEnergyBias(FEBias)
+        except:
+            self._lastKnownTime = 0
         self._buildContext()
         
         return

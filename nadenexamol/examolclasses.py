@@ -523,8 +523,6 @@ class basisManipulation(object):
         standardHValues = np.zeros([self.Ni,self.Nj,self.standardNumBasis + 1]) #Add 1 since the bonded terms are on here
         crossHValues = np.zeros([self.Ni,self.Nj,self.Ni,self.Nj,self.crossNumBasis])
         #Compute alchemical switches
-        standardHValues = np.zeros(standardBasis.shape)
-        crossHValues = np.zeros(crossBasis.shape)
         for i in xrange(self.Ni):
             for j in xrange(self.Nj):
                 lams = basisMap(lamVector[i,j], self._standardBasisCoupling)
@@ -1164,7 +1162,7 @@ class basisExamol(object):
                 if self.pressure is not None:
                     print("The Hybrid LDMC Integrator is coded to to NVT simulations, not NPT!")
                     raise(Exception)
-                self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep, stepsPerMCInner = self.stepsPerMCInner, stepsPerMCOuter = self.stepsPerMCOuter, lamMasses = self.protocol['lamMasses'])
+                self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep, stepsPerMCInner = self.stepsPerMCInner, stepsPerMCOuter = self.stepsPerMCOuter, lamMasses = self.protocol['lamMasses'], cartesianOnly = self.protocol['cartesianOnly'])
                 self.integrator = self.integratorEngine.integrator
                 #hybrid LDMC runs NVE MD with NVT sampling at MC step
                 thermostat = False
@@ -1717,6 +1715,7 @@ class basisExamol(object):
         defaultProtocols['nIterations'] = 10000 # Makes 10ns at default values
         defaultProtocols['lamMasses'] = None
         defaultProtocols['devIndex'] = 0 #Device index for multiple walkers
+        defaultProtocols['cartesianOnly'] = False #Set to use only carteisan updates (no alchemical change)
         if protocol is None:
             self.protocol = defaultProtocols
         else:

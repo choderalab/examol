@@ -14,8 +14,13 @@ DEBUG_MODE = False
 #ff = app.ForceField('xmlfiles/gaff.xml', 'xmlfiles/examol.xml', 'xmlfiles/examolresidue.xml', 'tip3p.xml')
 if DEBUG_MODE:
     ff = app.ForceField('xmlfiles/gaff.xml', 'xmlfiles/examolcharge.xml', 'xmlfiles/testresidue.xml', 'tip3p.xml')
+    Ni = 3 #Number of ith groups
+    Nj = 1 #Number of jth groups
 else:
     ff = app.ForceField('xmlfiles/gaff.xml', 'xmlfiles/examolcharge.xml', 'xmlfiles/examolresiduecharge.xml', 'tip3p.xml')
+    Ni = 3 #Number of ith groups
+    Nj = 10 #Number of jth groups
+
 #Nonbonded methods
 NBM=app.PME
 #NBM=app.NoCutoff
@@ -66,31 +71,38 @@ def loadpdb(basefilename, NBM=NBM, NBCO=NBCO, constraints=constraints, rigidWate
         print("WARNING: {0:s} does not have matching topology and system bonds/constraints!".format(basefilename))
     return system, pdbfile
 
-def writeGROCoords(filename, topology, positions):
+def writeGROCoords(filename, topology, positions, box=None):
     #Write out a GRO file positions based on the topology names and positions
+    #If box==None, then read the static object from 
     writestr = ''
     writestr += "CREATED WITH EXAMOL\n"
-    writestr += "{0:d}\n".format(positions.shape[0])
+    iterations = positions.shape[0]
+    natoms = positions.shape[1]
     #            resnum        resname        atomname     atnum    
     pointstr = "{resid: >5d}{resname: >5s}{atname:>5s}{atnum:>5d}{xcoord:> 8.3f}{ycoord:> 8.3f}{zcoord:> 8.3f}\n"
-    #Construct atoms
-    ci = 0 
-    ai = 1
-    for chain in topology.chains():
-        ri = 1
-        for res in chain.residues():
-            resname = res.name
-            for atom in res.atoms():
-                x,y,z = positions[ai-1,:].value_in_unit(unit.nanometer)
-                name = atom.name
-                atdic = {"atnum":ai, "atname":name, "resname":resname, "resid":ri, "xcoord":x, "ycoord":y, "zcoord":z}
-                writestr += pointstr.format(**atdic)
-                ai += 1
-            ri += 1
-        ci +=1
-    #PBC
-    box = topology.getPeriodicBoxVectors()
-    writestr += "{0:.3f} {1:.3f} {2:.3f}\n".format(*(box/unit.nanometer).diagonal())
+    for iteration in xrange(iterations):
+        writestr += "{0:d}\n".format(natoms)
+        #Construct atoms
+        ci = 0 
+        ai = 1
+        for chain in topology.chains():
+            ri = 1
+            for res in chain.residues():
+                resname = res.name
+                for atom in res.atoms():
+                    x,y,z = positions[iteration,ai-1,:].value_in_unit(unit.nanometer)
+                    name = atom.name
+                    atdic = {"atnum":ai, "atname":name, "resname":resname, "resid":ri, "xcoord":x, "ycoord":y, "zcoord":z}
+                    writestr += pointstr.format(**atdic)
+                    ai += 1
+                ri += 1
+            ci +=1
+        #PBC
+        if box is None:
+            boxOut = topology.getPeriodicBoxVectors()
+        else:
+            boxOut = box[iteration]
+        writestr += "{0:.3f} {1:.3f} {2:.3f}\n".format(*(boxOut/unit.nanometer).diagonal())
     with open(filename, 'w') as grofile:
         grofile.write(writestr)
     return
@@ -296,13 +308,6 @@ def initilizeSimulation(**kwargs):
     '''
     Create the simulation object
     '''
-    if DEBUG_MODE:
-        #DEBUG: 3 sites, 1 R-group per site (hydrogens)
-        Ni = 3 #Number of ith groups
-        Nj = 1 #Number of jth groups
-    else:
-        Ni = 3 #Number of ith groups
-        Nj = 10 #Number of jth groups
     basisSim = basisExamol(Ni, Nj, ff, **kwargs)
     
     if not basisSim.coordsLoaded:
@@ -381,18 +386,36 @@ def execute():
         systemname = 'examolsystem.xml'
     #basisSim = initilizeSimulation(filename=filename, equilibrate=True, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':2000, 'stepsPerIteration':1000, 'pressure':1*unit.atmosphere,'timestep':1.0*unit.femtosecond})
     #basisSim = initilizeSimulation(filename=filename, equilibrate=True, systemname=systemname, coordsFromFile='examol.nc.initPos.npz', protocol={'nIterations':2000, 'stepsPerIteration':1000, 'timestep':1.0*unit.femtosecond})
-    #basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1})
-    #basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1, 'stepsPerMC':1})
-    #basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1})
-    #basisSim = initilizeSimulation(filename=filename, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1, 'timestep':2.0*unit.femtosecond})
     crossSwitches = {'R':'fourth', 'E':'fourth', 'A':'fourth', 'C':'fourth', 'B':'fourth'}
     standardSwitches = {'B':'fourth'}
     #Without alchemical change, ts = 1.5 for optimal HMC, with alchemical change is 1.25fs
-    #basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol={'nIterations':1, 'stepsPerIteration':1, 'timestep':1.25*unit.femtosecond, 'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'stepsPerMCOuter':1})
-    sensitivityChecks(dicts={'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'nIterations':1, 'stepsPerIteration':1, 'devIndex':1})
+    #sensitivityChecks(dicts={'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'nIterations':1, 'stepsPerIteration':1, 'devIndex':1})
+    #Set optimal options from the sensitivity check
+    protocol = {}
+    protocol['timestep'] = 1.25 * unit.femtosecond
+    baseMass = 50 * unit.amu * unit.angstrom**2
+    masses =  np.empty([Ni,Nj],dtype=float)
+    masses.fill(baseMass.value_in_unit(unit.amu * unit.nanometer**2))
+    protocol['lamMasses'] = masses
+    protocol['stepsPerMCInner'] = 10
+    protocol['stepsPerMCOuter'] = 1
+    #Set the switches
+    protocol['crossSwitches'] = crossSwitches
+    protocol['standardSwitches'] = standardSwitches
+    #Set the write out
+    protocol['nIterations'] = 2000
+    timestepsPerIteration = 500
+    protocol['stepsPerIteration'] = int(timestepsPerIteration/float(protocol['stepsPerMCInner'])) 
+    #Choose to disable alchemical updates
+    protocol['cartesianOnly'] = True
+    #Device
+    protocol['devIndex'] = 0
+    #Temperature
+    protocol['temperature'] = 298*unit.kelvin
      
-    basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol={'nIterations':2000, 'stepsPerIteration':500, 'timestep':1.5*unit.femtosecond, 'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'stepsPerMCOuter':1, 'stepsPerMCInner':10})
-    #basisSim = initilizeSimulation(filename=filename, systemname=systemname, protocol={'nIterations':4})
+    #basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
+    basisSim = initilizeSimulation(filename='E298-0.1.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
+
     #context.applyConstraints(1E-6)
     #Pull the initial energy to allocte the Context__getStateAsLists call for "fair" testing, still looking into why the initial call is slow
     #writeGROCoords('allatomwtap.gro', basisSim.mainTopology, basisSim.context.getState(getPositions=True,enforcePeriodicBox=True).getPositions(asNumpy=True))
@@ -439,7 +462,6 @@ def execute():
     #basisSim.context.setPeriodicBoxVectors(basisSim.boxVectors[0,:], basisSim.boxVectors[1,:], basisSim.boxVectors[2,:])
     #writeGROCoords('newwaterwrap.gro', basisSim.mainTopology, basisSim.context.getState(getPositions=True,enforcePeriodicBox=True).getPositions(asNumpy=True))
 
-    basisSim.assignLambda(np.array([0.5]*(basisSim.Ni*basisSim.Nj)))
     basisSim.assignLambda(np.array([0.1]*(basisSim.Ni*basisSim.Nj)))
     #basisSim.assignLambda(np.array([[0,0,0,0,0,0,0,1,0,0],
     #                                [0,0,0,0,0,1,0,0,0,0],
@@ -461,19 +483,36 @@ def execute():
             en = np.zeros(steps)
             epn = np.zeros(steps)
             epo = np.zeros(steps)
+            epnt = np.zeros(steps)
+            epot = np.zeros(steps)
             eVal = np.zeros(steps)
-            ai = np.zeros(steps)
-            ao = np.zeros(steps)
+            ke = np.zeros(steps)
+            kep = np.zeros(steps)
+            fullE = np.zeros(steps)
             kT=basisSim.integrator.getGlobalVariableByName('kT')
+            mR = 0
+            stopReject = True
             for i in xrange(steps):
                 en[i] = basisSim.integrator.getGlobalVariableByName('EnewOuter')
                 eo[i] = basisSim.integrator.getGlobalVariableByName('EoldOuter')
                 epo[i] = basisSim.integrator.getGlobalVariableByName('EoldInnerEval')
-                epn[i] = basisSim.integrator.getGlobalVariableByName('EoldInner') #Because I shuffle new->old, this is the correct value to grab for testing MC accept/reject
-                #epn[i] = basisSim.integrator.getGlobalVariableByName('EnewInner') #This is debugging value to track what inner proposed values were, not what was accepted.
+                epn[i] = basisSim.integrator.getGlobalVariableByName('EInnerPass') #Because I shuffle new->old, this is the correct value to grab for testing MC accept/reject\
+                #2 debug values which track the inner loop, only at inner MC step 0 and -1 do the old and new match the value used in outer MC respectivley
+                epnt[i] = basisSim.integrator.getGlobalVariableByName('EnewInner')
+                epot[i] = basisSim.integrator.getGlobalVariableByName('EoldInner')
+                ke[i] = basisSim.integrator.getGlobalVariableByName('ke')
+                kep[i] = basisSim.integrator.getGlobalVariableByName('kePass')
                 eVal[i] = -((en[i]-eo[i])-(epn[i]-epo[i]))/kT
+                fullE[i] = basisSim.getPotential()/(kT*unit.kilojoules_per_mole)
                 basisSim.integrator.step(1)
+                mRsim =basisSim.integrator.getGlobalVariableByName('masterReject')
+                if mR < mRsim:
+                    mR = mRsim
+                    if stopReject:
+                        stopReject = False
+                        pdb.set_trace()
             deo = eo-epo
+            #writeGROCoords('allatomwtap.gro', basisSim.mainTopology, basisSim.context.getState(getPositions=True,enforcePeriodicBox=True).getPositions(asNumpy=True))
         except: pass
         E0 = np.array(E0)
         E1 = np.array(E1)

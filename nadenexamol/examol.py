@@ -6,6 +6,7 @@ from simtk.openmm import app
 from copy import deepcopy
 from examolclasses import *
 from examolhelpers import *
+import matplotlib.pyplot as plt
 import cProfile, pstats, StringIO
 import sys
 
@@ -75,12 +76,12 @@ def writeGROCoords(filename, topology, positions, box=None):
     #Write out a GRO file positions based on the topology names and positions
     #If box==None, then read the static object from 
     writestr = ''
-    writestr += "CREATED WITH EXAMOL\n"
     iterations = positions.shape[0]
     natoms = positions.shape[1]
     #            resnum        resname        atomname     atnum    
     pointstr = "{resid: >5d}{resname: >5s}{atname:>5s}{atnum:>5d}{xcoord:> 8.3f}{ycoord:> 8.3f}{zcoord:> 8.3f}\n"
     for iteration in xrange(iterations):
+        writestr += "CREATED WITH EXAMOL t={0:d}\n".format(iteration)
         writestr += "{0:d}\n".format(natoms)
         #Construct atoms
         ci = 0 
@@ -412,6 +413,8 @@ def execute():
     protocol['devIndex'] = 0
     #Temperature
     protocol['temperature'] = 298*unit.kelvin
+    #platoform
+    protocol['platform'] = 'OpenCL'
      
     #basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
     basisSim = initilizeSimulation(filename='E298-0.1.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
@@ -466,7 +469,7 @@ def execute():
     #basisSim.assignLambda(np.array([[0,0,0,0,0,0,0,1,0,0],
     #                                [0,0,0,0,0,1,0,0,0,0],
     #                                [0,0,1,0,0,0,0,0,0,0]]))
-    #basisSim.assignLambda(np.array([0]*(basisSim.Ni*basisSim.Nj)))
+    basisSim.assignLambda(np.array([0]*(basisSim.Ni*basisSim.Nj)))
     initialU = basisSim.computeBasisEnergy()
     if True:
         E0 = []
@@ -476,23 +479,91 @@ def execute():
         basisSim.integrator.step(1)
         for i in xrange(basisSim.calcGroup(2,9,2,9)+3):
             E1.append(basisSim.getPotential(groups=i)/unit.kilojoules_per_mole)
-        try:
-            print("Debugging")
-            steps = 600
-            eo = np.zeros(steps)
-            en = np.zeros(steps)
-            epn = np.zeros(steps)
-            epo = np.zeros(steps)
-            epnt = np.zeros(steps)
-            epot = np.zeros(steps)
-            eVal = np.zeros(steps)
-            ke = np.zeros(steps)
-            kep = np.zeros(steps)
-            fullE = np.zeros(steps)
-            kT=basisSim.integrator.getGlobalVariableByName('kT')
-            mR = 0
-            stopReject = True
-            for i in xrange(steps):
+        
+        def checkMD(sim):
+            mci = protocol['stepsPerMCInner']
+            xout=np.array(sim.integrator.getPerDofVariableByName('xFDebug'))
+            x2 = np.zeros((mci,)  + xout.shape)
+            uout = np.zeros(mci)
+            u2 = np.zeros(mci)
+            kout = np.zeros(mci)
+            for i in xrange(mci):
+                x2[i] = np.array(sim.integrator.getPerDofVariableByName('x{0:d}Debug'.format(i)))
+                uout[i] = sim.integrator.getGlobalVariableByName('U{0:d}Debug'.format(i))
+                try:
+                    kout[i] = sim.integrator.getGlobalVariableByName('K{0:d}Debug'.format(i))
+                except: pass
+            xout = x2 * unit.nanometer
+            uout *= unit.kilojoules_per_mole
+            kout *= unit.kilojoules_per_mole
+            u2   *= unit.kilojoules_per_mole
+            state = sim.context.getState(getPositions=True, enforcePeriodicBox=True)
+            pos0 = state.getPositions(asNumpy=True)
+            sim.context.setParameter('includeSecond',0)
+            for i in xrange(mci):
+                sim.context.setPositions(xout[i])
+                u2[i] =  basisSim.getPotential()
+            sim.context.setParameter('includeSecond',1)
+            sim.context.setPositions(pos0)
+            #f,a = plt.subplots(1,1)
+            #a.plot(range(mci), uout+kout)
+            #a.set_ylabel('Total E in kJ/mol')
+            #plt.show()
+            #pdb.set_trace()
+            #writeGROCoords('nevermore.gro', sim.mainTopology, xout)
+
+        steps = 250
+        state = basisSim.context.getState(getPositions=True)
+        pos = np.zeros((steps,) + state.getPositions(asNumpy=True).shape)*unit.nanometer
+        box = np.zeros((steps,) + state.getPeriodicBoxVectors(asNumpy=True).shape)*unit.nanometer
+
+        #basisSim.context.setParameter('includeSecond', 0)
+        #pdb.set_trace()
+        print("Debugging")
+        eo = np.zeros(steps)
+        en = np.zeros(steps)
+        epn = np.zeros(steps)
+        epo = np.zeros(steps)
+        epnt = np.zeros(steps)
+        epot = np.zeros(steps)
+        eVal = np.zeros(steps)
+        ke = np.zeros(steps)
+        kep = np.zeros(steps)
+        fullE = np.zeros(steps)
+        kT=basisSim.integrator.getGlobalVariableByName('kT')
+        mR = 0
+        stopReject = True
+ 
+        #s0 = basisSim.context.getState(getPositions=True,getVelocities=True,getForces=True,getEnergy=True,getParameters=True)
+        #basisSim.integrator.step(1)
+        #s1 = basisSim.context.getState(getPositions=True,getVelocities=True,getForces=True,getEnergy=True,getParameters=True)
+        #fs = []
+        #ke = []
+        #parms = []
+        #pbve = []
+        #pbvo = []
+        #pos = []
+        #pe = []
+        #tm = []
+        #vels = []
+        #for system in [s0,s1]:
+        #    fs.append(system.getForces(asNumpy=True))
+        #    ke.append(system.getKineticEnergy())
+        #    parms.append(system.getParameters())
+        #    pbve.append(system.getPeriodicBoxVectors(asNumpy=True))
+        #    pbvo.append(system.getPeriodicBoxVolume())
+        #    pos.append(system.getPositions(asNumpy=True))
+        #    pe.append(system.getPotentialEnergy())
+        #    tm.append(system.getTime())
+        #    vels.append(system.getVelocities(asNumpy=True))
+        #pdb.set_trace()
+        debugPosVel = np.load('debugPosVel.npz')
+        debugPos = debugPosVel['pos']
+        debugVel = debugPosVel['vel']
+        #basisSim.context.setPositions(debugPos)
+        #basisSim.context.setVelocities(debugVel)
+        for i in xrange(steps):
+            try:
                 en[i] = basisSim.integrator.getGlobalVariableByName('EnewOuter')
                 eo[i] = basisSim.integrator.getGlobalVariableByName('EoldOuter')
                 epo[i] = basisSim.integrator.getGlobalVariableByName('EoldInnerEval')
@@ -503,21 +574,33 @@ def execute():
                 ke[i] = basisSim.integrator.getGlobalVariableByName('ke')
                 kep[i] = basisSim.integrator.getGlobalVariableByName('kePass')
                 eVal[i] = -((en[i]-eo[i])-(epn[i]-epo[i]))/kT
-                fullE[i] = basisSim.getPotential()/(kT*unit.kilojoules_per_mole)
-                basisSim.integrator.step(1)
+                #if np.abs(en[i]-epn[i]) > 1:
+                #    uPass = basisSim.integrator.getGlobalVariableByName('UPassDebug')
+                #    kePass = basisSim.integrator.getGlobalVariableByName('kePassDebug')
+                #    xPass = np.array(basisSim.integrator.getPerDofVariableByName('xPassDebug'))
+                #    uOut = basisSim.integrator.getGlobalVariableByName('UOutDebug')
+                #    keOut = basisSim.integrator.getGlobalVariableByName('keOutDebug')
+                #    xOut = np.array(basisSim.integrator.getPerDofVariableByName('xOutDebug'))
+                #    pdb.set_trace()
+            except: pass
+            fullE[i] = basisSim.getPotential()/(kT*unit.kilojoules_per_mole)
+            state = basisSim.context.getState(getPositions=True, enforcePeriodicBox=True)
+            pos[i] = state.getPositions(asNumpy=True)
+            box[i] = state.getPeriodicBoxVectors(asNumpy=True)
+            basisSim.integrator.step(1)
+            try:
                 mRsim =basisSim.integrator.getGlobalVariableByName('masterReject')
                 if mR < mRsim:
                     mR = mRsim
-                    if stopReject:
-                        stopReject = False
-                        pdb.set_trace()
-            deo = eo-epo
-            #writeGROCoords('allatomwtap.gro', basisSim.mainTopology, basisSim.context.getState(getPositions=True,enforcePeriodicBox=True).getPositions(asNumpy=True))
-        except: pass
+                    #if stopReject:
+                    #    stopReject = False
+                    #    pdb.set_trace()
+            except: pass
         E0 = np.array(E0)
         E1 = np.array(E1)
         dE = E1-E0
     #timeSteps(basisSim, 1000)
+    checkMD(basisSim)
     pdb.set_trace()
     basisSim.run()
 

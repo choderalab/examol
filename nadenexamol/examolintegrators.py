@@ -77,17 +77,28 @@ class HybridLDMCIntegratorEngine(object):
         integrator.addPerDofVariable("storedForce", 0)
         #DEBUG
         integrator.addGlobalVariable("masterReject", 0)
+        integrator.addPerDofVariable("xFDebug", 0)
+        for i in xrange(self.stepsPerMCInner):
+            integrator.addPerDofVariable("x{0:d}Debug".format(i), 0)
+            integrator.addGlobalVariable("U{0:d}Debug".format(i), 0)
+            integrator.addGlobalVariable("K{0:d}Debug".format(i), 0)
+        integrator.addGlobalVariable("keDebug", 0)
+        integrator.addPerDofVariable("xPassDebug", 0)
+        integrator.addGlobalVariable("kePassDebug", 0)
+        integrator.addGlobalVariable("UPassDebug", 0)
+        integrator.addPerDofVariable("xOutDebug", 0)
+        integrator.addGlobalVariable("keOutDebug", 0)
+        integrator.addGlobalVariable("UOutDebug", 0)
+        integrator.addPerDofVariable("vOld", 0)
 
-        '''
-        DEBUG
-        Lambda updates disabled
-        '''
         #Integrator proper
         #Initilize velocities for MC V-randomization
         #Draw new velocities from a maxwell boltzman distribution
         integrator.addComputePerDof("sigma", "sqrt(kT/m)")
         integrator.addUpdateContextState()
+        #DEBUG
         integrator.addComputePerDof("v", "sigma*gaussian")
+        #integrator.addComputePerDof("vOld", "v")
         if not self._cartesianOnly:
             for i in xrange(self._basisSim.Ni):
                 for j in xrange(self._basisSim.Nj):
@@ -125,6 +136,12 @@ class HybridLDMCIntegratorEngine(object):
             integrator.addComputeGlobal("counterMCInner", "0")
             integrator.beginWhileBlock("counterMCInner < stepsPerMCInner")
             if True: #This is a visual indentation block to show what is falling under the integrator's "while" block
+                #DEBUG:
+                for i in xrange(self.stepsPerMCInner):
+                    integrator.addComputePerDof("x{0:d}Debug".format(i), "x*delta(counterMCInner-{0:d}) + x{0:d}Debug*(1-delta(counterMCInner-{0:d}))".format(i))
+                    integrator.addComputeGlobal("U{0:d}Debug".format(i), "energy*delta(counterMCInner-{0:d}) + U{0:d}Debug*(1-delta(counterMCInner-{0:d}))".format(i))
+                    integrator.addComputeSum("keDebug", "0.5*m*v*v")
+                    integrator.addComputeGlobal("K{0:d}Debug".format(i), "keDebug*delta(counterMCInner-{0:d}) + K{0:d}Debug*(1-delta(counterMCInner-{0:d}))".format(i))
                 if not self._cartesianOnly:
                     #pL(t)
                     integrator.addComputeGlobal("derivMode", "1")
@@ -136,17 +153,18 @@ class HybridLDMCIntegratorEngine(object):
                             integrator.addComputeGlobal('lamV{0:d}x{1:d}'.format(i,j), 'lamV{i:d}x{j:d} - dt*energy{group:d}/{m:f}'.format(i=i,j=j,group=group,m=self.lamMasses[i,j]))
                     integrator.addComputeGlobal("derivMode", "0");
                 #Check if force is stored
-                integrator.beginIfBlock("forceStored = 0")
-                if True: #Visual
-                    integrator.addComputePerDof("storedForce", "f")
-                    #The force stored flag is set here
-                    integrator.addComputeGlobal("forceStored", "1")
-                    integrator.endBlock()
+                #integrator.beginIfBlock("forceStored = 0")
+                #if True: #Visual
+                #    integrator.addComputePerDof("storedForce", "f")
+                #    #The force stored flag is set here
+                #    integrator.addComputeGlobal("forceStored", "1")
+                #    integrator.endBlock()
                 #p(t/2)
-                #integrator.addComputePerDof("v", "v+0.5*dt*f/m")
-                integrator.addComputePerDof("v", "v+0.5*dt*storedForce/m")
+                integrator.addComputePerDof("v", "v+0.5*dt*f/m")
+                #integrator.addComputePerDof("v", "v+0.5*dt*storedForce/m")
                 #q(t)
                 integrator.addComputePerDof("x", "x+dt*v")
+                integrator.addComputePerDof("x1", "x")
                 if not self._cartesianOnly:
                     #qL(t)
                     #Update alchemcial positions
@@ -171,25 +189,28 @@ class HybridLDMCIntegratorEngine(object):
                             #    integrator.addComputeGlobal("lam{0:d}x{1:d}B".format(i,j), "2-lam{0:d}x{1:d}B".format(i,j))
                             #    integrator.addComputeGlobal("lamV{0:d}x{1:d}".format(i,j), "-lamV{0:d}x{1:d}".format(i,j))
                             #    integrator.endBlock()
-                #q(t)
-                integrator.addComputePerDof("x1", "x")
                 integrator.addConstrainPositions()
                 #p(t/2)
-                integrator.addComputePerDof("storedForce", "f")
-                #integrator.addComputePerDof("v", "v+0.5*dt*f/m+(x-x1)/dt")
-                integrator.addComputePerDof("v", "v+0.5*dt*storedForce/m+(x-x1)/dt")
+                #integrator.addComputePerDof("storedForce", "f")
+                integrator.addComputePerDof("v", "v+0.5*dt*f/m+(x-x1)/dt")
+                #integrator.addComputePerDof("v", "v+0.5*dt*storedForce/m+(x-x1)/dt")
                 integrator.addConstrainVelocities()
                 integrator.addComputeGlobal("counterMCInner", "counterMCInner + 1")
                 integrator.endBlock()
             #Inner Accept/Reject Step
+            #DEBUG:
+            integrator.addComputePerDof("xFDebug", "x")
             integrator.addComputeSum("ke", "0.5*m*v*v")
             if not self._cartesianOnly:
                 integrator.addComputeGlobal("ke", "ke + 0.5*(" + " + ".join(keStrComps) + ")") #Just reusing the strings generated before
             integrator.addComputeGlobal("EnewInner", "ke + energy")
             integrator.addComputeGlobal("acceptInner", "step(exp(-(EnewInner-EoldInner)/kT) - uniform)")
+            #DEBUG:
+            #integrator.addComputeGlobal("acceptInner", "0")
             #NaN Discard block. This is a full discard of the run (not just reject), so decrease counters
             integrator.beginIfBlock("EnewInner != EnewInner")
             if True:
+                #Reset everything that could have NaN'd
                 integrator.addComputePerDof("x", "xoldInner")
                 integrator.addComputeGlobal("EnewInner", "EoldInner")
                 integrator.addComputeGlobal("ke", "kePass")
@@ -202,6 +223,7 @@ class HybridLDMCIntegratorEngine(object):
                 integrator.addComputeGlobal("counterMCOuter", "counterMCOuter - 1")
                 integrator.addComputeGlobal("ntrialsInner", "ntrialsInner - 1") #Only trials since naccept wont incremenet
                 integrator.addComputeGlobal("masterReject", "masterReject + 1")
+                integrator.addUpdateContextState()
                 integrator.endBlock()
             integrator.addComputePerDof("x", "x*acceptInner + xoldInner*(1-acceptInner)")
             integrator.addComputePerDof("xoldInner", "x")
@@ -213,8 +235,17 @@ class HybridLDMCIntegratorEngine(object):
             #Set new energy to pass up
             integrator.addComputeGlobal("EInnerPass", "EnewInner*acceptInner + EoldInner*(1-acceptInner)")
             integrator.addComputeGlobal("kePass", "ke*acceptInner + kePass*(1-acceptInner)")
+            #DEBUG
+            integrator.addComputeGlobal("UPassDebug", "energy")
+            integrator.addComputeGlobal("kePassDebug", "kePass")
+            integrator.addComputePerDof("xPassDebug", "x")
             #Generate new velocities, does not effect outter loop since KE is stored
             integrator.addUpdateContextState()
+            #DEBUG
+            integrator.addComputeGlobal("UOutDebug", "energy")
+            integrator.addComputeSum("keOutDebug", "0.5*m*v*v")
+            integrator.addComputePerDof("xOutDebug", "x")
+            #DEBUG
             integrator.addComputePerDof("v", "sigma*gaussian")
             if not self._cartesianOnly:
                 for i in xrange(self._basisSim.Ni):
@@ -239,6 +270,9 @@ class HybridLDMCIntegratorEngine(object):
         integrator.addComputeGlobal("EnewOuter", "kePass + energy")
         #The apprximate potential eval here is EoldInner-EoldInnerEval since I moved EnewInner -> EoldInner or preserved old EoldInner from above
         integrator.addComputeGlobal("acceptOuter", "step(exp(-((EnewOuter-EoldOuter)-(EInnerPass-EoldInnerEval))/kT) - uniform)")
+        #DEBUG:
+        #integrator.addComputeGlobal("acceptOuter", "0")
+        #integrator.addComputePerDof("v", "v*acceptOuter + vOld*(1-acceptOuter)")
         integrator.addComputePerDof("x", "x*acceptOuter + xoldOuter*(1-acceptOuter)")
         if not self._cartesianOnly:
             for i in xrange(self._basisSim.Ni):
@@ -306,19 +340,41 @@ class HybridLDMCIntegratorEngine(object):
         return
 
 class VelocityVerletNVT(mm.CustomIntegrator):
-    def __init__(self, timestep=1.0 * unit.femtoseconds):
+    def __init__(self, timestep=1.0 * unit.femtoseconds, temp=298*unit.kelvin, steps=1000):
 
-        super(VelocityVerletIntegrator, self).__init__(timestep)
+        super(VelocityVerletNVT, self).__init__(timestep)
 
+        kT = kB * temp
+        self.addPerDofVariable("sigma", 0)
         self.addPerDofVariable("x1", 0)
+        self.addGlobalVariable('kT', kT)
+        self.addGlobalVariable("stepper", 0)
+        #Storage variables for NVE MD steps and reducing force calls
+        self.addGlobalVariable("forceStored", 0)
+        self.addPerDofVariable("storedForce", 0)
 
+        self.addComputePerDof("sigma", "sqrt(kT/m)")
+        self.addComputePerDof("v", "sigma*gaussian")
+        self.addComputeGlobal("stepper", "0")
+        self.beginWhileBlock("stepper < {0:d}".format(steps))
         self.addUpdateContextState()
-        self.addComputePerDof("v", "v+0.5*dt*f/m")
+        self.beginIfBlock("forceStored = 0")
+        if True: #Visual
+            self.addComputePerDof("storedForce", "f")
+            #The force stored flag is set here
+            self.addComputeGlobal("forceStored", "1")
+            self.endBlock()
+        #self.addComputePerDof("v", "v+0.5*dt*f/m")
+        self.addComputePerDof("v", "v+0.5*dt*storedForce/m")
         self.addComputePerDof("x", "x+dt*v")
         self.addComputePerDof("x1", "x")
         self.addConstrainPositions()
-        self.addComputePerDof("v", "v+0.5*dt*f/m+(x-x1)/dt")
+        self.addComputePerDof("storedForce", "f")
+        self.addComputePerDof("v", "v+0.5*dt*storedForce/m+(x-x1)/dt")
+        #self.addComputePerDof("v", "v+0.5*dt*f/m+(x-x1)/dt")
         self.addConstrainVelocities()    
+        self.addComputeGlobal("stepper", "stepper + 1")
+        self.endBlock()
 
 class VelocityVerletIntegrator(mm.CustomIntegrator):
 

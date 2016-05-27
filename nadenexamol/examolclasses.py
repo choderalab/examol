@@ -1170,6 +1170,8 @@ class basisExamol(object):
             #self.integrator = mm.VerletIntegrator(self.timestep)
             #--
             #self.integrator = VelocityVerletIntegrator(self.timestep)
+            #--
+            #self.integrator  = VelocityVerletNVT(self.timestep)
             if thermostat:
                 self.buildThermostat()
             else:
@@ -1191,7 +1193,9 @@ class basisExamol(object):
             platformName = self.protocol['platform']
             deviceIndex = self.protocol['devIndex']
             self.platform = mm.Platform.getPlatformByName(platformName)
-            self.platform.setPropertyDefaultValue(platformName+'DeviceIndex', str(deviceIndex))
+            try:
+                self.platform.setPropertyDefaultValue(platformName+'DeviceIndex', str(deviceIndex))
+            except: pass
         return
 
     def _buildContext(self,provideContext=False, force=False):

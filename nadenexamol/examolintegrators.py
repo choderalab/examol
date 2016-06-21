@@ -137,11 +137,11 @@ class HybridLDMCIntegratorEngine(object):
             integrator.beginWhileBlock("counterMCInner < stepsPerMCInner")
             if True: #This is a visual indentation block to show what is falling under the integrator's "while" block
                 #DEBUG:
-                for i in xrange(self.stepsPerMCInner):
-                    integrator.addComputePerDof("x{0:d}Debug".format(i), "x*delta(counterMCInner-{0:d}) + x{0:d}Debug*(1-delta(counterMCInner-{0:d}))".format(i))
-                    integrator.addComputeGlobal("U{0:d}Debug".format(i), "energy*delta(counterMCInner-{0:d}) + U{0:d}Debug*(1-delta(counterMCInner-{0:d}))".format(i))
-                    integrator.addComputeSum("keDebug", "0.5*m*v*v")
-                    integrator.addComputeGlobal("K{0:d}Debug".format(i), "keDebug*delta(counterMCInner-{0:d}) + K{0:d}Debug*(1-delta(counterMCInner-{0:d}))".format(i))
+                #for i in xrange(self.stepsPerMCInner):
+                #    integrator.addComputePerDof("x{0:d}Debug".format(i), "x*delta(counterMCInner-{0:d}) + x{0:d}Debug*(1-delta(counterMCInner-{0:d}))".format(i))
+                #    integrator.addComputeGlobal("U{0:d}Debug".format(i), "energy*delta(counterMCInner-{0:d}) + U{0:d}Debug*(1-delta(counterMCInner-{0:d}))".format(i))
+                #    integrator.addComputeSum("keDebug", "0.5*m*v*v")
+                #    integrator.addComputeGlobal("K{0:d}Debug".format(i), "keDebug*delta(counterMCInner-{0:d}) + K{0:d}Debug*(1-delta(counterMCInner-{0:d}))".format(i))
                 if not self._cartesianOnly:
                     #pL(t)
                     integrator.addComputeGlobal("derivMode", "1")
@@ -199,14 +199,15 @@ class HybridLDMCIntegratorEngine(object):
                 integrator.endBlock()
             #Inner Accept/Reject Step
             #DEBUG:
-            integrator.addComputePerDof("xFDebug", "x")
+            #integrator.addComputePerDof("xFDebug", "x")
             integrator.addComputeSum("ke", "0.5*m*v*v")
             if not self._cartesianOnly:
                 integrator.addComputeGlobal("ke", "ke + 0.5*(" + " + ".join(keStrComps) + ")") #Just reusing the strings generated before
             integrator.addComputeGlobal("EnewInner", "ke + energy")
             integrator.addComputeGlobal("acceptInner", "step(exp(-(EnewInner-EoldInner)/kT) - uniform)")
             #DEBUG:
-            #integrator.addComputeGlobal("acceptInner", "0")
+            if self._forceAcceptMC:
+                integrator.addComputeGlobal("acceptInner", "1")
             #NaN Discard block. This is a full discard of the run (not just reject), so decrease counters
             integrator.beginIfBlock("EnewInner != EnewInner")
             if True:
@@ -236,15 +237,15 @@ class HybridLDMCIntegratorEngine(object):
             integrator.addComputeGlobal("EInnerPass", "EnewInner*acceptInner + EoldInner*(1-acceptInner)")
             integrator.addComputeGlobal("kePass", "ke*acceptInner + kePass*(1-acceptInner)")
             #DEBUG
-            integrator.addComputeGlobal("UPassDebug", "energy")
-            integrator.addComputeGlobal("kePassDebug", "kePass")
-            integrator.addComputePerDof("xPassDebug", "x")
+            #integrator.addComputeGlobal("UPassDebug", "energy")
+            #integrator.addComputeGlobal("kePassDebug", "kePass")
+            #integrator.addComputePerDof("xPassDebug", "x")
             #Generate new velocities, does not effect outter loop since KE is stored
             integrator.addUpdateContextState()
             #DEBUG
-            integrator.addComputeGlobal("UOutDebug", "energy")
-            integrator.addComputeSum("keOutDebug", "0.5*m*v*v")
-            integrator.addComputePerDof("xOutDebug", "x")
+            #integrator.addComputeGlobal("UOutDebug", "energy")
+            #integrator.addComputeSum("keOutDebug", "0.5*m*v*v")
+            #integrator.addComputePerDof("xOutDebug", "x")
             #DEBUG
             integrator.addComputePerDof("v", "sigma*gaussian")
             if not self._cartesianOnly:
@@ -270,8 +271,9 @@ class HybridLDMCIntegratorEngine(object):
         integrator.addComputeGlobal("EnewOuter", "kePass + energy")
         #The apprximate potential eval here is EoldInner-EoldInnerEval since I moved EnewInner -> EoldInner or preserved old EoldInner from above
         integrator.addComputeGlobal("acceptOuter", "step(exp(-((EnewOuter-EoldOuter)-(EInnerPass-EoldInnerEval))/kT) - uniform)")
+        if self._forceAcceptMC:
+            integrator.addComputeGlobal("acceptOuter", "1")
         #DEBUG:
-        #integrator.addComputeGlobal("acceptOuter", "0")
         #integrator.addComputePerDof("v", "v*acceptOuter + vOld*(1-acceptOuter)")
         integrator.addComputePerDof("x", "x*acceptOuter + xoldOuter*(1-acceptOuter)")
         if not self._cartesianOnly:
@@ -319,7 +321,7 @@ class HybridLDMCIntegratorEngine(object):
             self.integrator.setGlobalVariable('derivMode'.format(i,j), 0)
         return 
         
-    def __init__(self, basisSim, timestep, lamMasses=None, stepsPerMCInner=10, stepsPerMCOuter=None, cartesianOnly=False):
+    def __init__(self, basisSim, timestep, lamMasses=None, stepsPerMCInner=10, stepsPerMCOuter=None, cartesianOnly=False, forceAcceptMC=False):
         '''
         The cartesianOnly flag disables alchemical updates and only updates the cartesian coordinates. Helpful for debugging and doing Check Ensemble
         '''
@@ -336,6 +338,7 @@ class HybridLDMCIntegratorEngine(object):
             stepsPerMCOuter = self.stepsPerMCInner
         self.stepsPerMCOuter = stepsPerMCOuter
         self._cartesianOnly = cartesianOnly
+        self._forceAcceptMC = forceAcceptMC
         self.integrator = self._constructIntegrator()
         return
 

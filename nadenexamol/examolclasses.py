@@ -29,16 +29,10 @@ try:
 except:
     savez = np.savez
 
-def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
+
+def basisEnergyExpression(i,j, i2=None, j2=None, LJ=True, Electro=True):
     '''
-    Houses the basic energy string for the basis function energy. Based on Naden and Shirts, JCTC 11 (6), 2015, pp. 2536-2549
-
-    Can pass in i2 and j2 for alchemical <-> alchemical groups, It may be possible to simplify this interation to linear (one basis function), but I think having it as full basis function may be better since I have flexible groups
-
-    Energy expression kept here to reduce clutter elsewhere.
-    All of the "If" statements are so the order of the global parameters for setting defaults is preserved
-    
-    CURRENTLY HARD CODED: R C EA
+    Returns the string to build energy expression, split off into own function as the CustomNonbondedForce's and the special 1-4 CustomBondForce use the same expression, didn't want to repeat terms
     '''
     ONE_4PI_EPS0 = 138.935456 #From OpenMM's OpenCL kernel
     if i2 is None and j2 is None:
@@ -55,14 +49,12 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
         lamA = 'lam{0:s}x{1:s}x{2:s}x{3:s}A'.format(str(i),str(j),str(i2),str(j2))
         lamR = 'lam{0:s}x{1:s}x{2:s}x{3:s}R'.format(str(i),str(j),str(i2),str(j2))
         lamB = 'lam{0:s}x{1:s}B*lam{2:s}x{3:s}B'.format(str(i),str(j),str(i2),str(j2))
-   
+    lams = {'E':lamE, 'P':lamP, 'C':lamC, 'A':lamA, 'R':lamR, 'B':lamB}
     #Start energy Expression
     if i2 is None and j2 is None: #Conditional for approximate potential
         energy_expression = "theEnergy;"
     else:
         energy_expression = "theEnergy*includeSecond;"
-    #DEBUG:
-    energy_expression = "0;"
     switchRules = ''
     if LJ and Electro:
         energy_expression +=  "theEnergy = epsilon*(RepSwitchCappedBasis + AttSwitchBasis + CappingSwitchBasis) + electrostatics;"
@@ -167,20 +159,37 @@ def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
     
     switchRules += "nStage = {0:d};".format(3)
     energy_expression += switchRules
+
+    return energy_expression, lams
+    
+
+def basisEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
+    '''
+    Houses the basic energy string for the basis function energy. Based on Naden and Shirts, JCTC 11 (6), 2015, pp. 2536-2549
+
+    Can pass in i2 and j2 for alchemical <-> alchemical groups, It may be possible to simplify this interation to linear (one basis function), but I think having it as full basis function may be better since I have flexible groups
+
+    Energy expression kept here to reduce clutter elsewhere.
+    All of the "If" statements are so the order of the global parameters for setting defaults is preserved
+    
+    CURRENTLY HARD CODED: R C EA
+    '''
+    energy_expression, lams = basisEnergyExpression(i, j, i2=i2, j2=j2, LJ=LJ, Electro=Electro)
+    
     custom_nonbonded_force = mm.CustomNonbondedForce(energy_expression)
     #All the global/PerParticle parameters dont matter, they just will ocupy a bit extra memory
     if Electro:
         custom_nonbonded_force.addPerParticleParameter("charge")
-        custom_nonbonded_force.addGlobalParameter("{0:s}".format(lamE), 1)
-        #custom_nonbonded_force.addGlobalParameter("{0:s}".format(lamP), 1)
+        custom_nonbonded_force.addGlobalParameter("{0:s}".format(lams['E']), 1)
+        #custom_nonbonded_force.addGlobalParameter("{0:s}".format(lams['P']), 1)
         custom_nonbonded_force.addGlobalParameter("dielectric", 70)
         custom_nonbonded_force.addGlobalParameter("rcut", 1)
     if LJ:
         custom_nonbonded_force.addPerParticleParameter("sigma") # Lennard-Jones sigma
         custom_nonbonded_force.addPerParticleParameter("epsilon") # Lennard-Jones epsilon
-        custom_nonbonded_force.addGlobalParameter("{0:s}".format(lamC), 1)
-        custom_nonbonded_force.addGlobalParameter("{0:s}".format(lamA), 1)
-        custom_nonbonded_force.addGlobalParameter("{0:s}".format(lamR), 1)
+        custom_nonbonded_force.addGlobalParameter("{0:s}".format(lams['C']), 1)
+        custom_nonbonded_force.addGlobalParameter("{0:s}".format(lams['A']), 1)
+        custom_nonbonded_force.addGlobalParameter("{0:s}".format(lams['R']), 1)
     custom_nonbonded_force.addGlobalParameter("lam{0:d}x{1:d}B".format(i,j), 1)
     if i2 is not None and j2 is not None:
         custom_nonbonded_force.addGlobalParameter("lam{0:d}x{1:d}B".format(i2,j2), 1)
@@ -296,6 +305,33 @@ def basisUncapLinearEnergy(i, j, i2=None, j2=None, LJ=True, Electro=True):
     custom_nonbonded_force.addGlobalParameter("derivMode", 0)
     custom_nonbonded_force.addGlobalParameter("singleSwitchMode", 0)
     return custom_nonbonded_force
+
+def CoreR14Exceptions(i, j):
+    '''
+    Special force to handle the 1-4 interactions between core and R-groups. It uses a CustomBondForce as its only between a few pairs of atoms
+    '''
+    #Load the enery expression and lambda variables
+    energy_expression, lams = basisEnergyExpression(i, j)
+    #Cleanup the mixing rules:
+    energy_expression = energy_expression.replace("epsilon = sqrt(epsilon1*epsilon2);", "")
+    energy_expression = energy_expression.replace("sigma = 0.5*(sigma1 + sigma2);", "")
+    energy_expression = energy_expression.replace("charge1*charge2", "charge")
+    #Fix the expression to allow distance
+    energy_expression += "r = distance(p1,p2);"
+    custom_bond_force = mm.CustomCompoundBondForce(2, energy_expression)
+    custom_bond_force.addPerBondParameter("charge")
+    custom_bond_force.addGlobalParameter("{0:s}".format(lams['E']), 1)
+    custom_bond_force.addGlobalParameter("dielectric", 70)
+    custom_bond_force.addGlobalParameter("rcut", 1)
+    custom_bond_force.addPerBondParameter("sigma") # Lennard-Jones sigma
+    custom_bond_force.addPerBondParameter("epsilon") # Lennard-Jones epsilon
+    custom_bond_force.addGlobalParameter("{0:s}".format(lams['C']), 1)
+    custom_bond_force.addGlobalParameter("{0:s}".format(lams['A']), 1)
+    custom_bond_force.addGlobalParameter("{0:s}".format(lams['R']), 1)
+    custom_bond_force.addGlobalParameter("lam{0:d}x{1:d}B".format(i,j), 1)
+    custom_bond_force.addGlobalParameter("derivMode", 0)
+    custom_bond_force.addGlobalParameter("singleSwitchMode", 0)
+    return custom_bond_force
 
 def biasDerivative(i, j, Ni, Nj, lamMin = 0.3,  K = 50.0):
     '''
@@ -508,7 +544,7 @@ class basisManipulation(object):
 
     def castLamVector(self, lamVector):
         #Formatting function
-        if isinstance(lamVector, list):
+        if isinstance(lamVector, list) or isinstance(lamVector, tuple):
             lamVector = np.array(lamVector)
         lamVector = lamVector.reshape((self.Ni,self.Nj))
         return lamVector
@@ -783,9 +819,23 @@ class basisExamol(object):
                     atomi, atomj, chargeProd, sig, epsi = referenceForce.getExceptionParameters(exceptionIndex)
                     atomi, atomj = mapAtomsToMain([atomi, atomj], RMainAtomNumber, self.Ncore)
                     if atomi >= self.Ncore or atomj >= self.Ncore:
+                        #This also adds exceptions for core/atom, which does not quite work
                         self.mainNonbondedForce.addException(atomi, atomj, chargeProd, sig, epsi)
         return
 
+    def _reCalculateRAtomNumbers(self, defaultPath='pdbfiles/i%d/j%dc'):
+        self.RMainAtomNumbers = np.empty([self.Ni,self.Nj],dtype=np.object)
+        counter = self.Ncore
+        #Import the Rgroups
+        for i in xrange(self.Ni):
+            for j in xrange(self.Nj):
+                Rsystem, Rcoord = self.loadpdb(defaultPath%(i+1,j+1))
+                NR = Rsystem.getNumParticles()
+                newAtoms = NR - self.Ncore
+                self.RMainAtomNumbers[i,j] = range(counter, counter+newAtoms)
+                counter += newAtoms
+        return
+ 
     def _buildRGroups(self, defaultPath='pdbfiles/i%d/j%dc'):
         #allocate the housing objects
         self.Rsystems=np.empty([self.Ni,self.Nj],dtype=np.object)
@@ -817,10 +867,13 @@ class basisExamol(object):
         #If interactionGroups is a size 2 iterable object of sets, then interaction groups are added
         mainNonbondedCutoff = self.mainNonbondedForce.getCutoffDistance()
         mainNonbondedDielectric = self.mainNonbondedForce.getReactionFieldDielectric()
-        #Set parameters NB method, cutoff, other long range terms
-        basisForce.setNonbondedMethod(mm.CustomNonbondedForce.CutoffPeriodic)
-        basisForce.setCutoffDistance(mainNonbondedCutoff.value_in_unit(unit.nanometer))
-        basisForce.setUseLongRangeCorrection(longRange)
+        try: #The 1-4 CustomBondForce is also passed here, so this is in try to prevent error
+            #Set parameters NB method, cutoff, other long range terms
+            basisForce.setNonbondedMethod(mm.CustomNonbondedForce.CutoffPeriodic)
+            basisForce.setCutoffDistance(mainNonbondedCutoff.value_in_unit(unit.nanometer))
+            basisForce.setUseLongRangeCorrection(longRange)
+        except:
+            pass
         #Set global parameters
         for parameterIndex in xrange(basisForce.getNumGlobalParameters()):
             if "dielectric" == basisForce.getGlobalParameterName(parameterIndex):
@@ -960,6 +1013,26 @@ class basisExamol(object):
                 Rforce.addExclusion(atomi, atomj)
                 coreForce['force'].addExclusion(atomi, atomj)
         stdout.write('\n')
+        #Handle the 1-4 interactions
+        if self.verbose: print("Building 1-4 interactions - Currently Not Added")
+        for i in xrange(self.Ni):
+            for j in xrange(self.Nj):
+                forceGroup = self.calcGroup(i,j)
+                R14Force = CoreR14Exceptions(i,j) 
+                #Set force group
+                R14Force.setForceGroup(forceGroup)
+                RAtoms = self.RMainAtomNumbers[i,j]
+                for exceptionIndex in alchemicalExceptions:
+                    atomi, atomj, chargeProd, sigma, epsilon = self.mainNonbondedForce.getExceptionParameters(exceptionIndex)
+                    #Check if its a core/R-group interaction
+                    if (atomi in coreAtomNumbers and atomj in RAtoms) or (atomj in coreAtomNumbers and atomi in RAtoms):
+                        #Add 1-4 interaction
+                        R14Force.addBond((atomi, atomj), (chargeProd.value_in_unit(unit.elementary_charge**2), sigma.value_in_unit(unit.nanometer), epsilon.value_in_unit(unit.kilojoules_per_mole)))
+                        #Remove the exception from the main nonbonded force
+                        self.mainNonbondedForce.setExceptionParameters(exceptionIndex, atomi, atomj, chargeProd*0, sigma*0, epsilon*0)
+                #Set global nonbonded parameters, add to system
+                #NOTE: This isn't compiling correct right now. So I'm just shutting off the 1-4 R-core interactions for now
+                #self._assignBasisForceDefaults(R14Force)
         return
     
     def _buildBiasForces(self):
@@ -993,6 +1066,33 @@ class basisExamol(object):
                 biasFEForce, freeEnergyBiasForceTabs[i,j] = initFreeEnergyForceBias(i,j)
                 biasFEForce.setForceGroup(biasForceGroup)
                 self.mainSystem.addForce(biasFEForce)
+        #Store the tabulated FE biases and derivatives for later use (activley updating later)
+        self.freeEnergyTabs = {}
+        self.freeEnergyTabs['potential'] = freeEnergyBiasUTabs
+        self.freeEnergyTabs['force'] = freeEnergyBiasForceTabs
+        return
+
+    def _reLocateFEBiasTabs(self):
+        '''
+        Locate the free energy bias tabulated functions if the system was loaded from file
+        '''
+        freeEnergyBiasUTabs = np.empty([self.Ni, self.Nj],dtype=object)
+        freeEnergyBiasForceTabs = np.empty([self.Ni, self.Nj],dtype=object)
+        for forceidx in xrange(self.mainSystem.getNumForces()):
+            force = self.mainSystem.getForce(forceidx)
+            if isinstance(force, mm.CustomCompoundBondForce):
+                for tabidx in xrange(force.getNumTabulatedFunctions()):
+                    tabname = force.getTabulatedFunctionName(tabidx)
+                    tabshort = tabname[:3]
+                    if tabshort == 'FEF' or tabshort == 'FEU':
+                        #                     0123456789
+                        #Name follow template FEX#x#Bias
+                        i = int(tabname[3])
+                        j = int(tabname[5])
+                        if tabshort == 'FEF':
+                            freeEnergyBiasForceTabs[i,j] = force.getTabulatedFunction(tabidx)
+                        else:
+                            freeEnergyBiasUTabs[i,j] = force.getTabulatedFunction(tabidx)
         #Store the tabulated FE biases and derivatives for later use (activley updating later)
         self.freeEnergyTabs = {}
         self.freeEnergyTabs['potential'] = freeEnergyBiasUTabs
@@ -1075,6 +1175,9 @@ class basisExamol(object):
         freeEnergies : ndarray of floats of shape [Ni,Nj,S] where S is # of spline points
             The free energies from MBAR in units of kJ/mol for each {i,j} pair assuming lam_{k,l} = 0 for all (i != k and j != l)
             Points in the array should be uniformly measured along [0,1] domain for each i,j and is assumed as much in this function.
+            IMPORTANT: PROVIDE THE FREE ENERGY DIFFERENCE, NOT THE NEGATIVE
+              The FE Bias is actually the negative of the free energy difference to make unfavorable states more favored (-free energy) and make
+              favored state less favorable (+free energy)
 
         knotMultiplier : float >= 1
             Multiplier on the number of spline points, S, to use internally. 
@@ -1083,6 +1186,7 @@ class basisExamol(object):
 
         OpenMM interpolates between all points, does not use any smoothing, so UnivariateSpline(s=0), may want to use that.
         '''
+        if self.verbose: print("Updating Free Energy Bias...")
         freeEnergyUTabs = self.freeEnergyTabs['potential']
         freeEnergyFTabs = self.freeEnergyTabs['force']
         #Determine spline sizes
@@ -1091,13 +1195,13 @@ class basisExamol(object):
         xMM = np.linspace(0,1, int(nKnots * knotMultiplier))
         for i in xrange(self.Ni):
             for j in xrange(self.Nj):
-                #Build Spline
-                spline = UnivariateSpline(x, freeEnergy[i,j,:], s=0)
-                y = spline(xMM)*self.Kt
+                #Build Bias Spline based on the negative free energy
+                spline = UnivariateSpline(x, -freeEnergies[i,j,:], s=0)
+                y = spline(xMM)*self.kT
                 dy = spline(xMM,1)*self.kT
                 #Update free energy tabulated functions
-                freeEnergyUTabs.setFunctionParameters(y, 0, 1)
-                freeEnergyFTabs.setFunctionParameters(dy, 0, 1)
+                freeEnergyUTabs[i,j].setFunctionParameters(y, 0, 1)
+                freeEnergyFTabs[i,j].setFunctionParameters(dy, 0, 1)
         if self.context is not None:
             #Extract all the parameters/values needed to rebuild the context.
             state = self.context.getState(getPositions = True, getVelocities = True, getForces = True, getEnergy = True, getParameters = True, enforcePeriodicBox=False)
@@ -1162,7 +1266,7 @@ class basisExamol(object):
                 if self.pressure is not None:
                     print("The Hybrid LDMC Integrator is coded to to NVT simulations, not NPT!")
                     raise(Exception)
-                self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep, stepsPerMCInner = self.stepsPerMCInner, stepsPerMCOuter = self.stepsPerMCOuter, lamMasses = self.protocol['lamMasses'], cartesianOnly = self.protocol['cartesianOnly'])
+                self.integratorEngine = HybridLDMCIntegratorEngine(self, self.timestep, stepsPerMCInner = self.stepsPerMCInner, stepsPerMCOuter = self.stepsPerMCOuter, lamMasses = self.protocol['lamMasses'], cartesianOnly = self.protocol['cartesianOnly'], forceAcceptMC = self.protocol['forceAcceptMC'])
                 self.integrator = self.integratorEngine.integrator
                 #hybrid LDMC runs NVE MD with NVT sampling at MC step
                 thermostat = False
@@ -1440,13 +1544,17 @@ class basisExamol(object):
             self.boxVectors = data['box'] * unit.nanometer
         return
 
+    def _updatePositions(self):
+        if self.context is not None:
+            self.mainPositions = self.context.getState(getPositions=True).getPositions(asNumpy=True)
+
     def _resumeFromFile(self):
         '''
         Resume the simulation from the netcdf file
         '''
         ncfile = netcdf.Dataset(self.filename, 'r')
         self.iteration = ncfile.variables['positions'].shape[0] - 1
-        self.iteration = ncfile.variables['positions'].shape[0] - 2
+        #self.iteration = ncfile.variables['positions'].shape[0] - 2
         #Load coordinate, box vectors, and alchemical coordinates
         self._loadCoordinates(ncfile, iteration=self.iteration)
         try:
@@ -1521,6 +1629,7 @@ class basisExamol(object):
         ncvar_state     = ncfile.createVariable('state', 'f', ('iteration','lambda'))
         ncgrp_energies  = ncfile.createGroup('energies') #Energies group
         ncvar_energy    = ncgrp_energies.createVariable('energy', 'f', ('iteration'))
+        ncvar_totalenergy    = ncgrp_energies.createVariable('totalenergy', 'f', ('iteration'))
         ncvar_unaffected= ncgrp_energies.createVariable('unaffected', 'f', ('iteration'))
         ncvar_bias      = ncgrp_energies.createVariable('bias', 'f', ('iteration', 'biases'))
         ncvar_standard  = ncgrp_energies.createVariable('standardBasis', 'f', ('iteration', 'standard'))
@@ -1529,24 +1638,26 @@ class basisExamol(object):
         ncvar_volumes  = ncfile.createVariable('volumes', 'f', ('iteration'))
 
         # Define units for variables.
-        setattr(ncvar_positions, 'units', 'nm')
-        setattr(ncvar_state,     'units', 'none')
-        setattr(ncvar_energy,    'units', 'kT')
-        setattr(ncvar_unaffected,'units', 'kT')
-        setattr(ncvar_bias,      'units', 'kT')
-        setattr(ncvar_standard,  'units', 'kT')
-        setattr(ncvar_cross,     'units', 'kT')
+        setattr(ncvar_positions,   'units', 'nm')
+        setattr(ncvar_state,       'units', 'none')
+        setattr(ncvar_energy,      'units', 'kT')
+        setattr(ncvar_totalenergy, 'units', 'kT')
+        setattr(ncvar_unaffected,  'units', 'kT')
+        setattr(ncvar_bias,        'units', 'kT')
+        setattr(ncvar_standard,    'units', 'kT')
+        setattr(ncvar_cross,       'units', 'kT')
         setattr(ncvar_box_vectors, 'units', 'nm')
-        setattr(ncvar_volumes, 'units', 'nm**3')
+        setattr(ncvar_volumes,     'units', 'nm**3')
 
         # Define long (human-readable) names for variables.
-        setattr(ncvar_positions, "long_name", "positions[iteration][particle][spatial] is position of coordinate 'spatial' of atom 'particle' for iteration 'iteration'.")
-        setattr(ncvar_state,     "long_name", "states[iteration][lambda] is the value of alchemical variable 'lambda' of iteration 'iteration'.")
-        setattr(ncvar_energy,    "long_name", "energies[iteration] is the reduced (unitless) energy of the configuration from iteration 'iteration'.")
-        setattr(ncvar_unaffected,"long_name", "unaffected[iteration] is the reduced (unitless) energy of the non-alchemical energy of configuration from iteration 'iteration'.")
-        setattr(ncvar_standard,  "long_name", "standardBasis[iteration][standard] is the reduced (unitless) energy of number of alchemical/non-alchemical energy of 'standardBasis' from configuration of iteration 'iteration'.")
-        setattr(ncvar_cross,     "long_name", "crossBasis[iteration][cross] is the reduced (unitless) energy of number of alchemical/alchemical energy of 'crossBasis' from configuration of iteration 'iteration'.")
-        setattr(ncvar_bias,      "long_name", "bias[iteration][biases] is the reduced (unitless) energy of the [HarmonicBias, FreeEnergyBias] from the current state of iteration 'iteration'.")
+        setattr(ncvar_positions,   "long_name", "positions[iteration][particle][spatial] is position of coordinate 'spatial' of atom 'particle' for iteration 'iteration'.")
+        setattr(ncvar_state,       "long_name", "states[iteration][lambda] is the value of alchemical variable 'lambda' of iteration 'iteration'.")
+        setattr(ncvar_energy,      "long_name", "energies[iteration] is the reduced (unitless) potential energy of the configuration from iteration 'iteration'.")
+        setattr(ncvar_totalenergy, "long_name", "energies[iteration] is the reduced (unitless) total energy of the configuration from iteration 'iteration'.")
+        setattr(ncvar_unaffected,  "long_name", "unaffected[iteration] is the reduced (unitless) energy of the non-alchemical energy of configuration from iteration 'iteration'.")
+        setattr(ncvar_standard,    "long_name", "standardBasis[iteration][standard] is the reduced (unitless) energy of number of alchemical/non-alchemical energy of 'standardBasis' from configuration of iteration 'iteration'.")
+        setattr(ncvar_cross,       "long_name", "crossBasis[iteration][cross] is the reduced (unitless) energy of number of alchemical/alchemical energy of 'crossBasis' from configuration of iteration 'iteration'.")
+        setattr(ncvar_bias,        "long_name", "bias[iteration][biases] is the reduced (unitless) energy of the [HarmonicBias, FreeEnergyBias] from the current state of iteration 'iteration'.")
         setattr(ncvar_box_vectors, "long_name", "box_vectors[iteration][i][j] is dimension j of box vector i from iteration 'iteration-1'.")
         setattr(ncvar_volumes, "long_name", "volume[iteration] is the box volume for replica 'replica' from iteration 'iteration-1'.")
 
@@ -1559,14 +1670,16 @@ class basisExamol(object):
  
         #MC statistics, accept/reject rates of the 
         ncgrp_MC = ncfile.createGroup('MCStats')
-        ncgrp_MC.createVariable('naccept', int, ('iteration',))
-        ncgrp_MC.createVariable('ntrials', int, ('iteration',))
+        ncgrp_MC.createVariable('naccept', int, ('iteration','iterableLen'))
+        ncgrp_MC.createVariable('ntrials', int, ('iteration','iterableLen'))
 
         #Create some helpful constants to pass along
         ncvar_Ni = ncfile.createVariable('Ni', int)
         ncvar_Ni[0] = self.Ni
+        setattr(ncvar_Ni, 'protoType', type(self.Ni).__name__)
         ncvar_Nj = ncfile.createVariable('Nj', int)
         ncvar_Nj[0] = self.Nj
+        setattr(ncvar_Nj, 'protoType', type(self.Nj).__name__)
  
         #Create group of constants
         ncgrp_proto = ncfile.createGroup('protocols')
@@ -1620,15 +1733,24 @@ class basisExamol(object):
         #Store Alchemical State
         self.state = self.getLambda(flat=True)
         self.ncfile.variables['state'][self.iteration,:] = self.state
+        if self.verbose:
+            print("Current State:")
+            for i in xrange(self.Ni):
+                for j in xrange(self.Nj):
+                    print("{0:1.3f}".format(self.state[i*self.Nj + j])),
+                print("")
  
         #Store Energies
         energies = self.computeBasisEnergy()
         self.ncfile.groups['energies'].variables['energy'][self.iteration] = energies['totalPotential']/self.kT
+        self.ncfile.groups['energies'].variables['totalenergy'][self.iteration] = (state.getPotentialEnergy() + state.getKineticEnergy())/self.kT
         self.ncfile.groups['energies'].variables['unaffected'][self.iteration] = energies['unaffectedPotential']/self.kT
         self.ncfile.groups['energies'].variables['bias'][self.iteration, 0] = energies['harmonicBias']/self.kT
         self.ncfile.groups['energies'].variables['bias'][self.iteration, 1] = energies['freeEnergyBias']/self.kT
         self.ncfile.groups['energies'].variables['standardBasis'][self.iteration, :] = self.basisManipulator.flattenBasis(energies['standardBasis']/self.kT)
         self.ncfile.groups['energies'].variables['crossBasis'][self.iteration, :] = self.basisManipulator.flattenBasis(energies['crossBasis']/self.kT)
+        if self.verbose:
+            print("Current Potential in kT: {0:8.3f}".format(energies['totalPotential']/self.kT))
 
         #Store box volumes:
         self.boxVectors = state.getPeriodicBoxVectors(asNumpy=True)
@@ -1639,8 +1761,8 @@ class basisExamol(object):
         try:
             self.naccept = self.integrator.getGlobalVariableByName("naccept")
             self.ntrials = self.integrator.getGlobalVariableByName("ntrials")
-            self.ncfile.groups['MCStats'].variables['naccept'][self.iteration] = self.naccept
-            self.ncfile.groups['MCStats'].variables['ntrials'][self.iteration] = self.ntrials
+            self.ncfile.groups['MCStats'].variables['naccept'][self.iteration,:] = self.naccept
+            self.ncfile.groups['MCStats'].variables['ntrials'][self.iteration,:] = self.ntrials
         except:
             pass
 
@@ -1676,10 +1798,11 @@ class basisExamol(object):
 
             #Update Bias
             try:
-                lasttime = os.stat('FEBias.npy')
+                lasttime = os.stat('FEBias.npy').st_mtime
                 if lasttime > self._lastKnownTime:
                     FEBias = np.load('FEBias.npy')
                     self.updateFreeEnergyBias(FEBias)
+                    self._lastKnownTime = lasttime
             except:
                 pass
            
@@ -1720,6 +1843,7 @@ class basisExamol(object):
         defaultProtocols['lamMasses'] = None
         defaultProtocols['devIndex'] = 0 #Device index for multiple walkers
         defaultProtocols['cartesianOnly'] = False #Set to use only carteisan updates (no alchemical change)
+        defaultProtocols['forceAcceptMC'] = False #Set to use force MC moves to be accepted (helpful in equilibration, not for production)
         if protocol is None:
             self.protocol = defaultProtocols
         else:
@@ -1737,6 +1861,10 @@ class basisExamol(object):
                 print errorMsg % tuple(defaultProtocols.keys())
                 print "Assuming default protocol"
                 self.protocol = defaultProtocols
+        if self.protocol['cartesianOnly']:
+            print('Warning! No alchemical updates will occur due to cartesianOnly flag being set')
+        if self.protocol['forceAcceptMC']:
+            print('Warning! ALL MC moves will be accepted due to forceAcceptMC flag being set')
         return
 
     def __init__(self, Ni, Nj, ff, protocol=None, equilibrate=False, filename='examol.nc', systemname='examolsystem.xml', eqfile='examoleq.nc', coordsFromFile=None, filedebug=False, sysdebug=False):
@@ -1769,11 +1897,15 @@ class basisExamol(object):
         else:
             self._setProtocol(protocol)
             self.resume = False
-        #Special check for verbosity
+        #Special check for protocols which can change
         try:
             self.protocol['verbose'] = protocol['verbose']
         except:
             pass 
+        try:
+            self.protocol['nIterations'] = protocol['nIterations']
+        except:
+            pass
         #Set some more easily accessed common variables
         self.temperature = self.protocol['temperature']
         self.kT = kB * self.temperature
@@ -1813,6 +1945,7 @@ class basisExamol(object):
             self.mainTorsionForce = getArbitraryForce(self.mainSystem, mm.PeriodicTorsionForce)
             self.mainNonbondedForce = getArbitraryForce(self.mainSystem, mm.NonbondedForce)
             self.mainCMRForce = getArbitraryForce(self.mainSystem, mm.CMMotionRemover)
+            self._reCalculateRAtomNumbers()
             if not self.coordsLoaded:
                 posdata = np.load(self.filename + '.initPos.npz')
                 self.mainPositions = posdata['pos'] * unit.nanometer
@@ -1820,6 +1953,7 @@ class basisExamol(object):
                 boxVectors = self.mainSystem.setDefaultPeriodicBoxVectors(self.boxVectors[0,:], self.boxVectors[1,:], self.boxVectors[2,:])
             self.mainTopology.setPeriodicBoxVectors(self.boxVectors)
             #self.mainTopology.setPeriodicBoxVectors(self.boxVectors[0,:], self.boxVectors[1,:], self.boxVectors[2,:])
+            self._reLocateFEBiasTabs()
         else:
             if self.coordsLoaded:
                 tempPos = deepcopy(self.mainPositions)
@@ -1842,8 +1976,6 @@ class basisExamol(object):
             self.boxVectors = np.array([x/unit.nanometer for x in boxVectors]) * unit.nanometer
             #Set up the Nonbonded Forces
             self._buildNonbonded()
-            #Set up bias forces
-            self._buildBiasForces()
             with open(self.systemname, 'w') as systemfile:
                 systemfile.write(mm.XmlSerializer.serialize(self.mainSystem))
             #Write topology
@@ -1857,6 +1989,8 @@ class basisExamol(object):
                 #Save positions with some clever name
                 posfile = self.filename + '.initPos.npz'
                 np.savez(posfile, pos=self.mainPositions/unit.nanometer, box=self.boxVectors/unit.nanometer)
+        #Set up bias forces, not included in saved system as backing out the tabulated functions is difficult 
+        self._buildBiasForces()
         self.nParticles = self.mainSystem.getNumParticles()
         self.nIterations = self.protocol['nIterations']
         if not self.resume:

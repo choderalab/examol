@@ -98,7 +98,6 @@ def computeFEEndstates(mbar, basis, basisManipulator, filename=None):
     '''
     Ni = basisManipulator.Ni
     Nj = basisManipulator.Nj
-    FE = np.zeros([Ni,Nj,nPoints])
     K = mbar.K
     N = mbar.N
     standardBasis = basis['standardBasis']
@@ -108,6 +107,7 @@ def computeFEEndstates(mbar, basis, basisManipulator, filename=None):
     u_ln = np.zeros([L+1,N]) #Add 1 for the decoupled state to take FE with reference to
     stateMap = {}
     #Loop over all endstates
+    #pdb.set_trace()
     for l, combo in enumerate(itertools.product(xrange(Nj), repeat=Ni)):
         #Each 'combo' is len = Ni and each value is the j index to set for position i
         state = np.zeros([Ni,Nj])
@@ -122,6 +122,7 @@ def computeFEEndstates(mbar, basis, basisManipulator, filename=None):
     u_ln[-1,:] = unaffected + np.sum(standardBasis*hStandard, axis=-1) + np.sum(crossBasis*hCross, axis=-1)
     #Compute MBAR
     Deltaf_ij, dDeltaf_ij = mbar.computePerturbedFreeEnergies(u_ln)
+    #pdb.set_trace()
     #Sort free energies, indicies now match the R-group "j" you want to specify is coupled at site "i"
     DF = np.zeros([Nj]*Ni) 
     dDF = np.zeros(DF.shape)
@@ -139,17 +140,19 @@ def constructConsts(filenames, verbose=False):
     iterations = []
     for filename in filenames:
         ncfile, energy = readSimulation(filename)
-        iterations.append(iterations = ncfile.variables['positions'].shape[0])
+        iterations.append(ncfile.variables['positions'].shape[0])
         ncfiles.append(ncfile)
         energies.append(energy)
     #Ger some basic shape information
     totalIterations = sum(iterations)
     #Figure out what size and shape the basis functions will have
-    standardShape = (totalIterations,) + energies[0]['energies']['standardBasis'].shape
-    crossShape = (totalIterations,) + energies[0]['energies']['crossBasis'].shape
+    #Since the basis are each [TheirOwnSimLength, BasisShape] in dimension, only grab the last entry of the shape
+    standardShape = (totalIterations, energies[0]['standardBasis'].shape[-1])
+    crossShape = (totalIterations, energies[0]['crossBasis'].shape[-1])
     #Get the protocols and constants out of the NetCDF files
-    Ni = ncvarToPython(ncfiles[0].variables['Ni'][0])
-    Nj = ncvarToPython(ncfiles[0].variables['Nj'][0])
+    #Fix this line with new data
+    Ni = ncvarToPython(ncfiles[0].variables['Ni'])
+    Nj = ncvarToPython(ncfiles[0].variables['Nj'])
     standardSwitches = ncvarToPython(ncfiles[0].groups['protocols'].variables['standardSwitches'])
     crossSwitches = ncvarToPython(ncfiles[0].groups['protocols'].variables['crossSwitches'])
     standardBasisCoupling = ncvarToPython(ncfiles[0].groups['protocols'].variables['standardBasisCoupling'])
@@ -159,7 +162,8 @@ def constructConsts(filenames, verbose=False):
     stateMap = {}
     #Pre Allocate the energy matricies (we'll trim them later)
     u_kn = np.zeros([totalIterations,totalIterations])
-    N_k = np.zeros(totalIterations)
+    N_k = np.zeros(totalIterations, dtype=int)
+    initf_k = np.zeros(totalIterations) #Figure this out later
     standardBasis = np.zeros(standardShape)
     crossBasis = np.zeros(crossShape)
     unaffected = np.zeros(totalIterations)
@@ -168,9 +172,15 @@ def constructConsts(filenames, verbose=False):
     #Stich together frames, fiugre out states
     #This would be the place to detect correlated samples, this loop would need to change a bit though
     for filei, (ncfile, energy, indvIteration) in enumerate(zip(ncfiles, energies, iterations)):
+        maxcount = 0
         if verbose: print("Workign on ncfile {0:d}/{1:d}".format(filei+1,len(filenames)))
         for iteration in xrange(indvIteration):
+            #Try rounding the 3rd decimal off for fewer states
+            #state = tuple(np.round(energy['state'][iteration],decimals=2))
             state = tuple(energy['state'][iteration])
+            maxcount +=1
+            #if maxcount <= 10:
+            #    continue
             if state not in stateMap.keys():
                 stateMap[state] = kAssign
                 k = kAssign
@@ -182,6 +192,65 @@ def constructConsts(filenames, verbose=False):
             crossBasis[n] = energy['crossBasis'][iteration]
             unaffected[n] = energy['unaffected'][iteration]
             n += 1
+    #for filei, (ncfile, energy, indvIteration) in enumerate(zip(ncfiles, energies, iterations)):
+    #    seenstate = False
+    #    laststate = None
+    #    if verbose: print("Workign on ncfile {0:d}/{1:d}".format(filei+1,len(filenames)))
+    #    for iteration in xrange(indvIteration):
+    #        state = tuple(energy['state'][iteration])
+    #        if laststate == state:
+    #            seenstate=True
+    #        else:
+    #           laststate = state
+    #        if seenstate:
+    #            if state not in stateMap.keys():
+    #                stateMap[state] = kAssign
+    #                k = kAssign
+    #                kAssign += 1
+    #            else:
+    #                k = stateMap[state]
+    #            N_k[k] += 1
+    #            standardBasis[n] = energy['standardBasis'][iteration]
+    #            crossBasis[n] = energy['crossBasis'][iteration]
+    #            unaffected[n] = energy['unaffected'][iteration]
+    #            n += 1
+    #Try rounding the 3 decimal
+    #for filei, (ncfile, energy, indvIteration) in enumerate(zip(ncfiles, energies, iterations)):
+    #    maxcount = 0
+    #    if verbose: print("Workign on ncfile {0:d}/{1:d}".format(filei+1,len(filenames)))
+    #    for iteration in xrange(indvIteration):
+    #        #state = tuple(np.round(energy['state'][iteration],decimals=2))
+    #        state = tuple(energy['state'][iteration])
+    #        maxcount +=1
+    #        #if maxcount <= 10:
+    #        #    continue
+    #        if state not in stateMap.keys():
+    #            stateMap[state] = kAssign
+    #            k = kAssign
+    #            kAssign += 1
+    #        else:
+    #            k = stateMap[state]
+    #        N_k[k] += 1
+    #        standardBasis[n] = energy['standardBasis'][iteration]
+    #        crossBasis[n] = energy['crossBasis'][iteration]
+    #        unaffected[n] = energy['unaffected'][iteration]
+    #        n += 1
+    #for filei, (ncfile, energy, indvIteration) in enumerate(zip(ncfiles, energies, iterations)):
+    #    maxcount = 0
+    #    if verbose: print("Workign on ncfile {0:d}/{1:d}".format(filei+1,len(filenames)))
+    #    for iteration in xrange(indvIteration):
+    #        state = tuple(energy['state'][iteration])
+    #        if state not in stateMap.keys():
+    #            stateMap[state] = kAssign
+    #            k = kAssign
+    #            kAssign += 1
+    #            N_k[k] += 1
+    #            standardBasis[n] = energy['standardBasis'][iteration]
+    #            crossBasis[n] = energy['crossBasis'][iteration]
+    #            unaffected[n] = energy['unaffected'][iteration]
+    #            n += 1
+    #        else: pass
+
     totalN = n #should also be N_k.sum()
     totalK = kAssign
     #Trim up
@@ -191,19 +260,70 @@ def constructConsts(filenames, verbose=False):
     N_k           = N_k[:totalK]
     u_kn          = u_kn[:totalK,:totalN]
     #Create Switches
-    hStandard_k   = np.zeros( (totalK,)+standardShape.shape[1:])
-    hCross_k   = np.zeros( (totalK,)+crossShape.shape[1:])
+    hStandard_k   = np.zeros( (totalK,)+standardShape[1:])
+    hCross_k   = np.zeros( (totalK,)+crossShape[1:])
     #Create the switches
+    if verbose: print("Building Switches")
     for state in stateMap.keys():
-        k = stateMap(state)
+        k = stateMap[state]
         hStandard, hCross = basisManipulator.computeSwitches(state, flat=True)
         hStandard_k[k] = hStandard
         hCross_k[k] = hCross
     #Assign u_kn
+    #pdb.set_trace()
     for k in xrange(totalK):
-        u_kn[k,:] = unaffected + np.sum(hStandard_k[k] * standardBasis) + np.sum(hCross_k[k] * crossBasis)
+        u_kn[k,:] = unaffected + np.sum(hStandard_k[k] * standardBasis,axis=1) + np.sum(hCross_k[k] * crossBasis, axis=1)
+    #Use the fully decoupled state as the reference state to minimize odities
+    refState = tuple(np.ones([Ni,Nj]).flatten()*0.0)
+    ##if refState in stateMap.keys() or True:
+    if refState in stateMap.keys():
+        k = stateMap[refState]
+        #Find the state that is the 0
+        for state in stateMap.keys():
+            if stateMap[state] == 0:
+                state0 = state
+                break
+        stateMap[state0] = k
+        stateMap[refState] = 0
+        #k = np.argmax(N_k)
+        u_kn[[0,k],:] = u_kn[[k,0],:]
+        N_k[[0,k]] = N_k[[k,0]]
+    else:
+        #Generate a new entry:
+        u_kn_new = np.zeros([totalK+1, totalN])
+        N_k_new = np.zeros(totalK+1, dtype=int)
+        u_kn_new[1:,:] = u_kn
+        u_kn = u_kn_new
+        N_k_new[1:] = N_k
+        N_k = N_k_new
+        hStandard, hCross = basisManipulator.computeSwitches(state,flat=True)
+        u_kn[0,:] = unaffected + np.sum(hStandard * standardBasis, axis=1) + np.sum(hCross * crossBasis, axis=1)
+        for state in stateMap.keys():
+            stateMap[state] += 1
     if verbose: print("Building MBAR")
-    mbar = MBAR(u_kn, N_k, verbose=verbose)
+    subsampling_protocol=[{'method':'L-BFGS-B','options':{}}]
+    subsampling_protocol[0]['options']['ftol'] = 1E-8 #Being more tolerant on error to speed up convergance
+    if verbose:
+        subsampling_protocol[0]['options']['disp'] = True
+    #Try to load f_k:
+    f_ki = np.zeros(N_k.shape)
+    try:
+        with open('f_kMap.pickle', 'r') as fk:
+            f_kMap = pickle.load(fk)
+        for state in f_kMap.keys():
+            f_state = f_kMap[state]
+            k = stateMap[state]
+            f_ki[k] = f_state
+    except:
+        pass
+    mbar = MBAR(u_kn, N_k, initial_f_k=f_ki, verbose=verbose, subsampling_protocol=subsampling_protocol, subsampling=1)
+    #Save the f_k
+    f_kout = {}
+    for state in stateMap.keys():
+        k = stateMap[state]
+        f_kout[state] = mbar.f_k[k]
+    with open('f_kMap.pickle', 'w') as fk:
+        pickle.dump(f_kout, fk)
     basisOut = {'unaffected':unaffected, 'standardBasis':standardBasis, 'crossBasis':crossBasis}
     return mbar, basisOut, basisManipulator
 

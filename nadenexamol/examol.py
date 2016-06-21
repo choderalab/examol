@@ -72,42 +72,6 @@ def loadpdb(basefilename, NBM=NBM, NBCO=NBCO, constraints=constraints, rigidWate
         print("WARNING: {0:s} does not have matching topology and system bonds/constraints!".format(basefilename))
     return system, pdbfile
 
-def writeGROCoords(filename, topology, positions, box=None):
-    #Write out a GRO file positions based on the topology names and positions
-    #If box==None, then read the static object from 
-    writestr = ''
-    iterations = positions.shape[0]
-    natoms = positions.shape[1]
-    #            resnum        resname        atomname     atnum    
-    pointstr = "{resid: >5d}{resname: >5s}{atname:>5s}{atnum:>5d}{xcoord:> 8.3f}{ycoord:> 8.3f}{zcoord:> 8.3f}\n"
-    for iteration in xrange(iterations):
-        writestr += "CREATED WITH EXAMOL t={0:d}\n".format(iteration)
-        writestr += "{0:d}\n".format(natoms)
-        #Construct atoms
-        ci = 0 
-        ai = 1
-        for chain in topology.chains():
-            ri = 1
-            for res in chain.residues():
-                resname = res.name
-                for atom in res.atoms():
-                    x,y,z = positions[iteration,ai-1,:].value_in_unit(unit.nanometer)
-                    name = atom.name
-                    atdic = {"atnum":ai, "atname":name, "resname":resname, "resid":ri, "xcoord":x, "ycoord":y, "zcoord":z}
-                    writestr += pointstr.format(**atdic)
-                    ai += 1
-                ri += 1
-            ci +=1
-        #PBC
-        if box is None:
-            boxOut = topology.getPeriodicBoxVectors()
-        else:
-            boxOut = box[iteration]
-        writestr += "{0:.3f} {1:.3f} {2:.3f}\n".format(*(boxOut/unit.nanometer).diagonal())
-    with open(filename, 'w') as grofile:
-        grofile.write(writestr)
-    return
-
 def writePDBCoords(filename, topology, positions):
     #Write out a PDB file positions based on the topology names and positions
     writestr = ''
@@ -145,7 +109,6 @@ def writePDBCoords(filename, topology, positions):
     with open(filename, 'w') as pdbfile:
         pdbfile.write(writestr)
     return
-
 
 def addRParticles(mainSystem, coreSystem, corecoords, Rsystem, Rcoords):
     #Detect differences between core and R group
@@ -404,11 +367,13 @@ def execute():
     protocol['crossSwitches'] = crossSwitches
     protocol['standardSwitches'] = standardSwitches
     #Set the write out
-    protocol['nIterations'] = 2000
+    protocol['nIterations'] = 200
     timestepsPerIteration = 500
     protocol['stepsPerIteration'] = int(timestepsPerIteration/float(protocol['stepsPerMCInner'])) 
     #Choose to disable alchemical updates
-    protocol['cartesianOnly'] = True
+    protocol['cartesianOnly'] = False
+    #Choose to force moves to accept (used for equilibration)
+    protocol['forceAcceptMC'] = False
     #Device
     protocol['devIndex'] = 0
     #Temperature
@@ -417,7 +382,10 @@ def execute():
     protocol['platform'] = 'OpenCL'
      
     #basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
-    basisSim = initilizeSimulation(filename='E298-0.1.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
+    #basisSim = initilizeSimulation(filename='FRand3-1.0.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
+    #basisSim = initilizeSimulation(filename='SRand3-1.0.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='FRand3-1.0.nc', protocol=protocol)
+    basisSim = initilizeSimulation(filename='SNIa.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
+    #pdb.set_trace()
 
     #context.applyConstraints(1E-6)
     #Pull the initial energy to allocte the Context__getStateAsLists call for "fair" testing, still looking into why the initial call is slow
@@ -465,20 +433,87 @@ def execute():
     #basisSim.context.setPeriodicBoxVectors(basisSim.boxVectors[0,:], basisSim.boxVectors[1,:], basisSim.boxVectors[2,:])
     #writeGROCoords('newwaterwrap.gro', basisSim.mainTopology, basisSim.context.getState(getPositions=True,enforcePeriodicBox=True).getPositions(asNumpy=True))
 
-    basisSim.assignLambda(np.array([0.1]*(basisSim.Ni*basisSim.Nj)))
-    #basisSim.assignLambda(np.array([[0,0,0,0,0,0,0,1,0,0],
-    #                                [0,0,0,0,0,1,0,0,0,0],
-    #                                [0,0,1,0,0,0,0,0,0,0]]))
-    basisSim.assignLambda(np.array([0]*(basisSim.Ni*basisSim.Nj)))
+    if not basisSim.resume:
+        #basisSim.assignLambda(np.array([0.1]*(basisSim.Ni*basisSim.Nj)))
+        #basisSim.assignLambda(np.array([[0,0,0,0.2,0,0,0,0,0,0.2],
+        #                                [0,0,0,0,0,0.2,0,0,0,0],
+        #                                [0,0,0.2,0,0,0,0,0.2,0,0]]))
+        #basisSim.assignLambda(np.array([[0,0,0,0,0,0,0,0,0,0.5],
+        #                                [0,0,0,0,0,0,0.5,0,0,0],
+        #                                [0,0,0.5,0,0,0,0,0,0,0]]))
+        #basisSim.assignLambda(np.array([0]*(basisSim.Ni*basisSim.Nj)))
+        lamin = np.array([0.1]*(basisSim.Ni*basisSim.Nj))
+        lamin = lamin.reshape([basisSim.Ni,basisSim.Nj])
+        lamin[:,4] = np.array([1,1,1])*0.6
+        basisSim.assignLambda(lamin)
+        if False:
+           if basisSim.verbose: print("Minimizing Positions")
+           mm.LocalEnergyMinimizer.minimize(basisSim.context)
+           basisSim._updatePositions() 
     initialU = basisSim.computeBasisEnergy()
-    if True:
-        E0 = []
-        E1 = []
-        for i in xrange(basisSim.calcGroup(2,9,2,9)+3):
-            E0.append(basisSim.getPotential(groups=i)/unit.kilojoules_per_mole)
-        basisSim.integrator.step(1)
-        for i in xrange(basisSim.calcGroup(2,9,2,9)+3):
-            E1.append(basisSim.getPotential(groups=i)/unit.kilojoules_per_mole)
+    if False:
+        debugPosVel = np.load('debugPosVel.npz')
+        debugPos = debugPosVel['pos']
+        debugVel = debugPosVel['vel']
+        basisSim.context.setPositions(debugPos)
+        basisSim.context.setVelocities(debugVel)
+        basisSim.integrator.step(5)
+        #E0 = []
+        #E1 = []
+        #K0 = []
+        #K1 = []
+        #for i in xrange(basisSim.calcGroup(2,9,2,9)+3):
+        #    E0.append(basisSim.getPotential(groups=i)/unit.kilojoules_per_mole)
+        #    K0.append(basisSim.context.getState(getForces=True, groups=i).getForces(asNumpy=True))
+        #basisSim.integrator.step(1)
+        #for i in xrange(basisSim.calcGroup(2,9,2,9)+3):
+        #    E1.append(basisSim.getPotential(groups=i)/unit.kilojoules_per_mole)
+        #    K1.append(basisSim.context.getState(getForces=True, groups=i).getForces(asNumpy=True))
+        #dbs = 50
+        #utot = np.zeros(dbs)
+        #ktot = np.zeros(dbs)
+        #KS = np.zeros((dbs, 4884, 3))*unit.kilojoules_per_mole/unit.nanometer
+        #xout = np.zeros((dbs, 4884, 3))*unit.nanometer
+        #for s in xrange(dbs):
+        #    state = basisSim.context.getState(getForces=True, getPositions=True, getEnergy=True)
+        #    utot[s] = state.getPotentialEnergy()/unit.kilojoules_per_mole
+        #    ktot[s] = state.getKineticEnergy()/unit.kilojoules_per_mole
+        #    KS[s] = state.getForces(asNumpy=True)
+        #    xout[s] = state.getPositions(asNumpy=True)
+        #    basisSim.integrator.step(1)
+        #etot = utot+ktot
+        #forcesum = np.sqrt(np.sum(KS**2,axis=2))
+        #f,(a,u,k,e) = plt.subplots(4,1, figsize=(8, 4*4))
+        ##b = plt.twinx(ax=a)
+        #xval = np.array(xrange(dbs))*protocol['timestep']/unit.femtosecond
+        #a.set_ylabel('Acting force in kJ/mol/nm')
+        #a.set_xlabel('timestep')
+        #a.plot(xval, forcesum[:,1], '-k', label='Core C')
+        #a.plot(xval, forcesum[:,6], '--k', label='Core H')
+        #a.plot(xval, forcesum[:,52], '-r', label='Hydroxyl O')
+        #a.plot(xval, forcesum[:,53], '--r', label='Hydroxyl H')
+        #a.legend(loc="upper right")
+        #xlim = a.get_xlim()
+        #u.scatter(xval, utot/1000, c='g', label='Potential')
+        #k.scatter(xval, ktot/1000, c='b', label='Kinetic')
+        #e.scatter(xval, etot/1000, c='k', label='Total E')
+        #for plot in (u,k,e):
+        #    plot.legend(loc='center right')
+        #    plot.set_xlim(xlim)
+        #k.set_ylabel(r'Energy in kJ/mol $\cdot 10^3$')
+        ##Figure out Maxes to draw lines at
+        #coreCpeaks = np.argsort(forcesum[:,1])[-1:]
+        #coreHpeaks = np.argsort(forcesum[:,6])[-1:]
+        #ohOpeaks = np.argsort(forcesum[:,52])[-1:]
+        #ohHpeaks = np.argsort(forcesum[:,53])[-1:]
+        #for plot in (a,u,k,e):
+        #    for peaks, fo in zip((coreCpeaks, coreHpeaks, ohOpeaks, ohHpeaks), (forcesum[:,1], forcesum[:,6], forcesum[:,52], forcesum[:,53])):
+        #       for peak in peaks:
+        #           if fo[peak] > 10000:
+        #               plot.axvline(x=xval[peak])
+        #f.savefig("actingForcesFix.png")#,bbox_inches='tight')
+        #writeGROCoords('forceTwistFix.gro', basisSim.mainTopology, xout)
+        #pdb.set_trace()
         
         def checkMD(sim):
             mci = protocol['stepsPerMCInner']
@@ -511,6 +546,7 @@ def execute():
             #plt.show()
             #pdb.set_trace()
             #writeGROCoords('nevermore.gro', sim.mainTopology, xout)
+            return xout, uout, kout
 
         steps = 250
         state = basisSim.context.getState(getPositions=True)
@@ -530,7 +566,10 @@ def execute():
         ke = np.zeros(steps)
         kep = np.zeros(steps)
         fullE = np.zeros(steps)
-        kT=basisSim.integrator.getGlobalVariableByName('kT')
+        try:
+            kT=basisSim.integrator.getGlobalVariableByName('kT')
+        except:
+            kT = basisSim.kT/unit.kilojoules_per_mole
         mR = 0
         stopReject = True
  
@@ -557,11 +596,10 @@ def execute():
         #    tm.append(system.getTime())
         #    vels.append(system.getVelocities(asNumpy=True))
         #pdb.set_trace()
-        debugPosVel = np.load('debugPosVel.npz')
-        debugPos = debugPosVel['pos']
-        debugVel = debugPosVel['vel']
-        #basisSim.context.setPositions(debugPos)
-        #basisSim.context.setVelocities(debugVel)
+        xs = []
+        us = []
+        ks = []
+        es = []
         for i in xrange(steps):
             try:
                 en[i] = basisSim.integrator.getGlobalVariableByName('EnewOuter')
@@ -588,6 +626,14 @@ def execute():
             pos[i] = state.getPositions(asNumpy=True)
             box[i] = state.getPeriodicBoxVectors(asNumpy=True)
             basisSim.integrator.step(1)
+            #basisSim.integrator.step(10)
+            #try:
+            #    for ls, val in zip([xs,us,ks], checkMD(basisSim)):
+            #        ls.append(val)
+            #    es.append(us[-1]+ks[-1])
+            #    writeGROCoords('twisting.gro', basisSim.mainTopology, xs[-1])
+            #except:
+            #    pass
             try:
                 mRsim =basisSim.integrator.getGlobalVariableByName('masterReject')
                 if mR < mRsim:
@@ -596,12 +642,13 @@ def execute():
                     #    stopReject = False
                     #    pdb.set_trace()
             except: pass
-        E0 = np.array(E0)
-        E1 = np.array(E1)
-        dE = E1-E0
+        #E0 = np.array(E0)
+        #E1 = np.array(E1)
+        #dE = E1-E0
+        pdb.set_trace()
     #timeSteps(basisSim, 1000)
-    checkMD(basisSim)
-    pdb.set_trace()
+    #checkMD(basisSim)
+    #pdb.set_trace()
     basisSim.run()
 
 if __name__ == "__main__":

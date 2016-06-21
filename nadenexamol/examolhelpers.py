@@ -3,6 +3,7 @@ import numpy as np
 import simtk.unit as unit
 import simtk.openmm as mm
 from simtk.openmm import app
+import sys
 from sys import stdout
 import netCDF4 as netcdf
 
@@ -24,6 +25,47 @@ rigidWater=True
 eET=0.0005
 NA = unit.AVOGADRO_CONSTANT_NA
 kB = unit.BOLTZMANN_CONSTANT_kB * NA
+
+def writeGROCoords(filename, topology, positions, box=None, verbose=True):
+    #Write out a GRO file positions based on the topology names and positions
+    #If box==None, then read the static object from 
+    writestr = ''
+    iterations = positions.shape[0]
+    natoms = positions.shape[1]
+    #            resnum        resname        atomname     atnum    
+    pointstr = "{resid: >5d}{resname: >5s}{atname:>5s}{atnum:>5d}{xcoord:> 8.3f}{ycoord:> 8.3f}{zcoord:> 8.3f}\n"
+    for iteration in xrange(iterations):
+        if verbose:
+            sys.stdout.flush()
+            sys.stdout.write('\rWriting frame {0:d}/{1:d}'.format(iteration+1,iterations))
+        writestr += "CREATED WITH EXAMOL t={0:d}\n".format(iteration)
+        writestr += "{0:d}\n".format(natoms)
+        #Construct atoms
+        ci = 0 
+        ai = 1
+        for chain in topology.chains():
+            ri = 1
+            for res in chain.residues():
+                resname = res.name
+                for atom in res.atoms():
+                    x,y,z = positions[iteration,ai-1,:].value_in_unit(unit.nanometer)
+                    name = atom.name
+                    atdic = {"atnum":ai, "atname":name, "resname":resname, "resid":ri, "xcoord":x, "ycoord":y, "zcoord":z}
+                    writestr += pointstr.format(**atdic)
+                    ai += 1
+                ri += 1
+            ci +=1
+        #PBC
+        if box is None:
+            boxOut = listQuantityToNumpy(topology.getPeriodicBoxVectors())
+        else:
+            boxOut = box[iteration]
+        writestr += "{0:.3f} {1:.3f} {2:.3f}\n".format(*(boxOut/unit.nanometer).diagonal())
+    if verbose:
+        sys.stdout.write('\n')
+    with open(filename, 'w') as grofile:
+        grofile.write(writestr)
+    return
 
 def getArbitraryForce(system, force):
     #Get the instance of specified force from the openmm system
@@ -49,6 +91,18 @@ def mapAtomsToMain(atomIndices, mainMap, Ncore):
         return atomIndices[0]
     else:
         return atomIndices
+
+def listQuantityToNumpy(inputList):
+    n = len(inputList)
+    baseunit = inputList[0].unit
+    try:
+        n2 = len(inputList[0])
+        arr = np.zeros([n,n2])
+    except:
+        arr = np.zeros(n)
+    for i in xrange(n):
+        arr[i] = inputList[i].value_in_unit(baseunit)
+    return arr * baseunit
 
 def listCoordsToNumpy(Coords):
     #Cast the coordinates in a list format to numpy format. Some getPositions() functions allow asNumpy=True keyword, others (like the modeler) do not. This function handles thoes that do not
@@ -296,6 +350,8 @@ def loadnc(filename, mode='r', full=False, outputs=['energies','positions','stat
         load the netcdf either for read only or for append when its done
     '''
     #Load readonly mode to get data out
+    if type(outputs) is str:
+        outputs = [outputs]
     ncfile = netcdf.Dataset(filename, 'r')
     iterations = ncfile.variables['positions'].shape[0]
 
@@ -304,6 +360,7 @@ def loadnc(filename, mode='r', full=False, outputs=['energies','positions','stat
         energyout = {}
         if full:
             energyout['energy'] = ncfile.groups['energies'].variables['energy'][:]
+            energyout['totalenergy'] = ncfile.groups['energies'].variables['totalenergy'][:]
             energyout['unaffected'] = ncfile.groups['energies'].variables['unaffected'][:]
             energyout['harmonicBias'] = ncfile.groups['energies'].variables['bias'][:,0]
             energyout['freeEnergyBias'] = ncfile.groups['energies'].variables['bias'][:,1]
@@ -311,6 +368,7 @@ def loadnc(filename, mode='r', full=False, outputs=['energies','positions','stat
             energyout['crossBasis'] = ncfile.groups['energies'].variables['crossBasis'][:,:]
         else:
             energyout['energy'] = ncfile.groups['energies'].variables['energy'][-1]
+            energyout['totalenergy'] = ncfile.groups['energies'].variables['totalenergy'][-1]
             energyout['unaffected'] = ncfile.groups['energies'].variables['unaffected'][-1]
             energyout['harmonicBias'] = ncfile.groups['energies'].variables['bias'][-1,0]
             energyout['freeEnergyBias'] = ncfile.groups['energies'].variables['bias'][-1,1]

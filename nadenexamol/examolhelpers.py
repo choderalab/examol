@@ -417,7 +417,7 @@ def testMCEvals(oldE, newE, kT, n=1000):
         accept[i] = np.where(np.exp(-dE/kT) - np.random.random(dE.shape) >= 0)[0].size
     return accept.mean()
 
-def computeHarmonicBias(lamVector, Ni, Nj, lamMin = 0.3, K = 1.0 * unit.kilojoules_per_mole):
+def computeHarmonicBias(lamVector, Ni, Nj, lamMin = 0.3, K = 1.0 * unit.kilojoules_per_mole, smoothVariant=True):
     #Sanity check for the harmonic bias force
     K = K/unit.kilojoules_per_mole
     bias = 0
@@ -426,19 +426,30 @@ def computeHarmonicBias(lamVector, Ni, Nj, lamMin = 0.3, K = 1.0 * unit.kilojoul
             if lamVector[i,j] >= lamMin:
                 for k in xrange(Nj):
                     if k != j and lamVector[i,k] >= lamMin:
-                        bias += K*(lamVector[i,k] - lamMin)**2
+                        if smoothVariant:
+                            bias += K * (lamVector[i,j] - lamMin)**2 * (lamVector[i,k] - lamMin)**2
+                        else:
+                            bias += K * (lamVector[i,k] - lamMin)**2
     return bias*unit.kilojoules_per_mole
-def computeHarmonicBiasDerivative(i,j, lamVector, Ni, Nj, lamMin = 0.3, K = 1.0 * unit.kilojoules_per_mole):
+def computeHarmonicBiasDerivative(i,j, lamVector, Ni, Nj, lamMin = 0.3, K = 1.0 * unit.kilojoules_per_mole, smoothVariant=True):
     #Sanity check for the harmonic bias force
     K = K/unit.kilojoules_per_mole
     bias = 0
-    for loopi in xrange(Ni):
-        for loopj in xrange(Nj):
-            if loopi == i and loopj == j and lamVector[i,j] == lamMin : #Dirac delta on heaviside
-                for k in xrange(Nj):
-                    if k != j and lamVector[i,k] >= lamMin:
-                        bias += K*(lamVector[i,k]-lamMin)**2
-            else:
-                if lamVector[loopi,loopj] >= lamMin and lamVector[i,j] >= lamMin:
-                    bias += 2*K*(lamVector[i,j] - lamMin)
+    if smoothVariant:
+        for loopi in xrange(Ni):
+            for loopj in xrange(Nj):
+                if lamVector[i,j] >= lamMin:
+                    for k in xrange(Nj):
+                        if k != j and lamVector[i,k] >= lamMin:
+                            bias += 4*K*(lamVector[i,j] - lamMin) * (lamVector[i,k] - lamMin)**2
+    else:
+        for loopi in xrange(Ni):
+            for loopj in xrange(Nj):
+                if loopi == i and loopj == j and lamVector[i,j] == lamMin : #Dirac delta on heaviside
+                    for k in xrange(Nj):
+                        if k != j and lamVector[i,k] >= lamMin:
+                            bias += K*(lamVector[i,k]-lamMin)**2
+                else:
+                    if lamVector[loopi,loopj] >= lamMin and lamVector[i,j] >= lamMin:
+                        bias += 2*K*(lamVector[i,j] - lamMin)
     return bias*unit.kilojoules_per_mole

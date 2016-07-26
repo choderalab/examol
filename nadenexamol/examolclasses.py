@@ -333,7 +333,7 @@ def CoreR14Exceptions(i, j):
     custom_bond_force.addGlobalParameter("singleSwitchMode", 0)
     return custom_bond_force
 
-def biasDerivative(i, j, Ni, Nj, lamMin = 0.3,  K = 50.0):
+def biasDerivative(i, j, Ni, Nj, lamMin = 0.3,  K = 100.0, smoothVariant=True):
     '''
     Bias derivative in the lambda dims. Flat bottom conditional harmonic restraint
     
@@ -347,22 +347,36 @@ def biasDerivative(i, j, Ni, Nj, lamMin = 0.3,  K = 50.0):
     basisij = lamVar.format(i=i,j=j)
     #Set up Heaviside step and energy expression, we also want bias OFF in single switch mode
     energy_expression += "(1-singleSwitchMode)*derivMode*biasSum;"
-    biasObjs = []
-    biasVars = []
-    for loopi in xrange(Ni):
+    if smoothVariant:
+        #Use smooth scaling variant at the thresholds.
+        #Derivative math works out to dB/dLij = 4KH(Lij-Lm)(Lij-Lm) \sum_{k \ne j} H(Lik-Lm)(Lik-Lm)^2
+        biasObjs = []
+        biasVars = [basisij]
+        biasSum = '4*{K:f}*step({basisij:s} - {lamMin:f})*({basisij:s} - {lamMin:f})*('.format(K=K, basisij=basisij, lamMin=lamMin) #Open parenthesis to include the sum
         for loopj in xrange(Nj):
-            if loopi == i and loopj == j: #check for ij == ik
-                #Generate step function bias
-                ikObjs = ["step({basisik:s} - {lamMin:f})*{K:f}*({basisik:s} - {lamMin:f})^2".format(basisik=lamVar.format(i=i,j=loopk), lamMin=lamMin, K=K) for loopk in xrange(Nj) if loopk != j]
-                if len(ikObjs) == 0:
-                    biasObjs.append('delta({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(0)')
+            if loopj != j:
+                basisik = lamVar.format(i=i, j=loopj)
+                biasObjs.append('step({basisik:s} - {lamMin:f})*({basisik:s} - {lamMin:f})^2'.format(basisik=basisik, lamMin=lamMin))
+                biasVars.append(basisik)
+        biasSum += ' + '.join(biasObjs) + ')' #Close parenthisis from earlier
+    else:
+        #Use the older style where there is a hard wall at the thresholds    
+        biasObjs = []
+        biasVars = []
+        for loopi in xrange(Ni):
+            for loopj in xrange(Nj):
+                if loopi == i and loopj == j: #check for ij == ik
+                    #Generate step function bias
+                    ikObjs = ["step({basisik:s} - {lamMin:f})*{K:f}*({basisik:s} - {lamMin:f})^2".format(basisik=lamVar.format(i=i,j=loopk), lamMin=lamMin, K=K) for loopk in xrange(Nj) if loopk != j]
+                    if len(ikObjs) == 0:
+                        biasObjs.append('delta({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(0)')
+                    else:
+                        biasObjs.append('delta({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(' + ' + '.join(ikObjs) + ')')
                 else:
-                    biasObjs.append('delta({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(' + ' + '.join(ikObjs) + ')')
-            else:
-                basisij2 = lamVar.format(i=loopi,j=loopj)
-                biasObjs.append("step({basisij2:s} - {lamMin:f})*step({basisij:s} - {lamMin:f})*2*{K:f}*({basisij:s} - {lamMin:f})".format(basisij=basisij, lamMin=lamMin,  basisij2=basisij2, K=K))
-            biasVars.append(lamVar.format(i=loopi,j=loopj))
-    biasSum = ' + '.join(biasObjs)
+                    basisij2 = lamVar.format(i=loopi,j=loopj)
+                    biasObjs.append("step({basisij2:s} - {lamMin:f})*step({basisij:s} - {lamMin:f})*2*{K:f}*({basisij:s} - {lamMin:f})".format(basisij=basisij, lamMin=lamMin,  basisij2=basisij2, K=K))
+                biasVars.append(lamVar.format(i=loopi,j=loopj))
+        biasSum = ' + '.join(biasObjs)
     energy_expression += "biasSum = {0};".format(biasSum)
     custom_external_force = mm.CustomExternalForce(energy_expression)
     custom_external_force.addGlobalParameter('singleSwitchMode', 0)
@@ -371,7 +385,7 @@ def biasDerivative(i, j, Ni, Nj, lamMin = 0.3,  K = 50.0):
         custom_external_force.addGlobalParameter(var, 1)
     return custom_external_force
 
-def biasPotential(Ni, Nj, lamMin = 0.3 , K = 50.0):
+def biasPotential(Ni, Nj, lamMin = 0.3 , K = 100.0, smoothVariant=True):
     '''
     Bias derivative in the lambda dims. Flat bottom conditional harmonic restraint
     
@@ -386,15 +400,23 @@ def biasPotential(Ni, Nj, lamMin = 0.3 , K = 50.0):
     biasVars = []
     #energy_expression += "(1-singleSwitchMode)*(1-derivMode)*biasSum;"
     energy_expression += "(1-derivMode)*biasSum;"
-    for i in xrange(Ni):
-        for j in xrange(Nj):
-            basisij = lamVar.format(i=i,j=j)
-            ikObjs = ["step({basisik2:s} - {lamMin:f})*{K:f}*({basisik2:s} - {lamMin:f})^2".format(basisik2=lamVar.format(i=i,j=k), lamMin=lamMin, K=K) for k in xrange(Nj) if k != j]
-            if len(ikObjs) == 0:
-                biasObjs.append('step({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(0)')
-            else:
-                biasObjs.append('step({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(' + ' + '.join(ikObjs) + ')')
-            biasVars.append(basisij)
+    if smoothVariant:
+        for i in xrange(Ni):
+            for j in xrange(Nj):
+                basisij = lamVar.format(i=i,j=j)
+                ikObjs = ["step({basisik2:s} - {lamMin:f})*{K:f}*({basisik2:s} - {lamMin:f})^2".format(basisik2=lamVar.format(i=i,j=k), lamMin=lamMin, K=K) for k in xrange(Nj) if k != j]
+                biasObjs.append("(step({basisij:s} - {lamMin:f})*({basisij:s} - {lamMin:f})^2)*({iks:s})".format(basisij=basisij, lamMin=lamMin, iks='+'.join(ikObjs)))
+                biasVars.append(basisij)
+    else:
+        for i in xrange(Ni):
+            for j in xrange(Nj):
+                basisij = lamVar.format(i=i,j=j)
+                ikObjs = ["step({basisik2:s} - {lamMin:f})*{K:f}*({basisik2:s} - {lamMin:f})^2".format(basisik2=lamVar.format(i=i,j=k), lamMin=lamMin, K=K) for k in xrange(Nj) if k != j]
+                if len(ikObjs) == 0:
+                    biasObjs.append('step({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(0)')
+                else:
+                    biasObjs.append('step({basisij:s} - {lamMin:f})'.format(basisij=basisij,lamMin=lamMin) + '*(' + ' + '.join(ikObjs) + ')')
+                biasVars.append(basisij)
     energy_expression += 'biasSum = ' + ' + '.join(biasObjs) + ';'
     custom_external_force = mm.CustomExternalForce(energy_expression)
     #custom_external_force.addGlobalParameter('singleSwitchMode', 0)
@@ -834,6 +856,7 @@ class basisExamol(object):
                 newAtoms = NR - self.Ncore
                 self.RMainAtomNumbers[i,j] = range(counter, counter+newAtoms)
                 counter += newAtoms
+        pdb.set_trace()
         return
  
     def _buildRGroups(self, defaultPath='pdbfiles/i%d/j%dc'):

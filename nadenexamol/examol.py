@@ -341,50 +341,48 @@ def initilizeSimulation(**kwargs):
     context.setVelocitiesToTemperature(basisSim.temperature)
     return basisSim
 
-def execute():
+def execute(protocol, filename='S0.0.nc'):
     if DEBUG_MODE:
-        filename = 'examoldebug.nc'
+        #filename = 'examoldebug.nc'
         systemname = 'examoldebugsystem.xml'
     else:
-        filename = 'examol.nc'
+        #filename = 'examol.nc'
         systemname = 'examolsystem.xml'
-    #basisSim = initilizeSimulation(filename=filename, equilibrate=True, systemname=systemname, coordsFromFile='examoleqNVT.nc', protocol={'nIterations':2000, 'stepsPerIteration':1000, 'pressure':1*unit.atmosphere,'timestep':1.0*unit.femtosecond})
-    #basisSim = initilizeSimulation(filename=filename, equilibrate=True, systemname=systemname, coordsFromFile='examol.nc.initPos.npz', protocol={'nIterations':2000, 'stepsPerIteration':1000, 'timestep':1.0*unit.femtosecond})
-    crossSwitches = {'R':'fourth', 'E':'fourth', 'A':'fourth', 'C':'fourth', 'B':'fourth'}
-    standardSwitches = {'B':'fourth'}
-    #Without alchemical change, ts = 1.5 for optimal HMC, with alchemical change is 1.25fs
-    #sensitivityChecks(dicts={'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'nIterations':1, 'stepsPerIteration':1, 'devIndex':1})
-    #Set optimal options from the sensitivity check
-    protocol = {}
-    protocol['timestep'] = 1.25 * unit.femtosecond
-    baseMass = 50 * unit.amu * unit.angstrom**2
-    masses =  np.empty([Ni,Nj],dtype=float)
-    masses.fill(baseMass.value_in_unit(unit.amu * unit.nanometer**2))
-    protocol['lamMasses'] = masses
-    protocol['stepsPerMCInner'] = 10
-    protocol['stepsPerMCOuter'] = 1
-    #Set the switches
-    protocol['crossSwitches'] = crossSwitches
-    protocol['standardSwitches'] = standardSwitches
-    #Set the write out
-    protocol['nIterations'] = 200
-    timestepsPerIteration = 500
-    protocol['stepsPerIteration'] = int(timestepsPerIteration/float(protocol['stepsPerMCInner'])) 
-    #Choose to disable alchemical updates
-    protocol['cartesianOnly'] = False
-    #Choose to force moves to accept (used for equilibration)
-    protocol['forceAcceptMC'] = False
-    #Device
-    protocol['devIndex'] = 0
-    #Temperature
-    protocol['temperature'] = 298*unit.kelvin
-    #platoform
-    protocol['platform'] = 'OpenCL'
+    #crossSwitches = {'R':'fourth', 'E':'fourth', 'A':'fourth', 'C':'fourth', 'B':'fourth'}
+    #standardSwitches = {'B':'fourth'}
+    ##Without alchemical change, ts = 1.5 for optimal HMC, with alchemical change is 1.25fs
+    ##sensitivityChecks(dicts={'crossSwitches':crossSwitches, 'standardSwitches':standardSwitches, 'nIterations':1, 'stepsPerIteration':1, 'devIndex':1})
+    ##Set optimal options from the sensitivity check
+    #protocol = {}
+    #protocol['timestep'] = 1.25 * unit.femtosecond
+    #baseMass = 50 * unit.amu * unit.angstrom**2
+    #masses =  np.empty([Ni,Nj],dtype=float)
+    #masses.fill(baseMass.value_in_unit(unit.amu * unit.nanometer**2))
+    #protocol['lamMasses'] = masses
+    #protocol['stepsPerMCInner'] = 10
+    #protocol['stepsPerMCOuter'] = 1
+    ##Set the switches
+    #protocol['crossSwitches'] = crossSwitches
+    #protocol['standardSwitches'] = standardSwitches
+    ##Set the write out
+    #protocol['nIterations'] = 500
+    #timestepsPerIteration = 500
+    #protocol['stepsPerIteration'] = int(timestepsPerIteration/float(protocol['stepsPerMCInner'])) 
+    ##Choose to disable alchemical updates
+    #protocol['cartesianOnly'] = False
+    ##Choose to force moves to accept (used for equilibration)
+    #protocol['forceAcceptMC'] = False
+    ##Device
+    #protocol['devIndex'] = 0
+    ##Temperature
+    #protocol['temperature'] = 298*unit.kelvin
+    ##platoform
+    #protocol['platform'] = 'OpenCL'
      
     #basisSim = initilizeSimulation(filename=filename[:-3]+'4th.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
     #basisSim = initilizeSimulation(filename='FRand3-1.0.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
     #basisSim = initilizeSimulation(filename='SRand3-1.0.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='FRand3-1.0.nc', protocol=protocol)
-    basisSim = initilizeSimulation(filename='SNIa.nc', systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
+    basisSim = initilizeSimulation(filename=filename, systemname=systemname[:-4]+'4th.xml', coordsFromFile='examoleqNVT.nc', protocol=protocol)
     #pdb.set_trace()
 
     #context.applyConstraints(1E-6)
@@ -441,11 +439,11 @@ def execute():
         #basisSim.assignLambda(np.array([[0,0,0,0,0,0,0,0,0,0.5],
         #                                [0,0,0,0,0,0,0.5,0,0,0],
         #                                [0,0,0.5,0,0,0,0,0,0,0]]))
-        #basisSim.assignLambda(np.array([0]*(basisSim.Ni*basisSim.Nj)))
-        lamin = np.array([0.1]*(basisSim.Ni*basisSim.Nj))
-        lamin = lamin.reshape([basisSim.Ni,basisSim.Nj])
-        lamin[:,4] = np.array([1,1,1])*0.6
-        basisSim.assignLambda(lamin)
+        basisSim.assignLambda(np.array([0]*(basisSim.Ni*basisSim.Nj)))
+        #lamin = np.array([0.1]*(basisSim.Ni*basisSim.Nj))
+        #lamin = lamin.reshape([basisSim.Ni,basisSim.Nj])
+        #lamin[:,1] = np.array([1,1,1])*0.6
+        #basisSim.assignLambda(lamin)
         if False:
            if basisSim.verbose: print("Minimizing Positions")
            mm.LocalEnergyMinimizer.minimize(basisSim.context)

@@ -5,8 +5,7 @@ from pymbar import MBAR
 from examolhelpers import *
 from examolclasses import *
 import simtk.unit as unit
-import simtk.openmm as mm
-from simtk.openmm import app
+from pymbar import timeseries
 import pdb
 
 try:
@@ -59,7 +58,7 @@ def readSimulation(filename):
     #Made it its own function in case I want to do more with it
     return loadnc(filename, full=True)
 
-def computeFEBias(mbar, basis, basisManipulator, nPoints = 10):
+def computeFEBias(mbar, basis, basisManipulator, nPoints = 10, verbose=False):
     '''
     Compute the Free Energy Bias along each of the lambda vectors
     '''
@@ -74,6 +73,7 @@ def computeFEBias(mbar, basis, basisManipulator, nPoints = 10):
     L = Ni*Nj*nPoints
     u_ln = np.zeros([L,N])
     pointValue = linspace(0,1,nPoints)
+    if verbose: print('Building energies for bias...')
     for i in xrange(Ni):
         for j in xrange(Nj):
             for nP in xrange(nPoints):
@@ -83,6 +83,7 @@ def computeFEBias(mbar, basis, basisManipulator, nPoints = 10):
                 state[i,j] = pointValue[nP]
                 hStandard, hCross = basisManipulator.computeSwitches(state, flat=True)
                 u_ln[l,:] = unaffected + np.sum(standardBasis*hStandard, axis=-1) + np.sum(crossBasis*hCross, axis=-1)
+    if verbose: print('Computing Bias Free Energies...')
     Deltaf_ij, dDeltaf_ij = mbar.computePerturbedFreeEnergies(u_ln)
     for i in xrange(Ni):
         for j in xrange(Nj):
@@ -92,7 +93,7 @@ def computeFEBias(mbar, basis, basisManipulator, nPoints = 10):
     np.save('FEBias.npy', FE)
     return
 
-def computeFEEndstates(mbar, basis, basisManipulator, filename=None):
+def computeFEEndstates(mbar, basis, basisManipulator, filename=None, verbose=False):
     '''
     Compute the Free energy of the endstates
     '''
@@ -108,6 +109,7 @@ def computeFEEndstates(mbar, basis, basisManipulator, filename=None):
     stateMap = {}
     #Loop over all endstates
     #pdb.set_trace()
+    if verbose: print('Building energies for end states...')
     for l, combo in enumerate(itertools.product(xrange(Nj), repeat=Ni)):
         #Each 'combo' is len = Ni and each value is the j index to set for position i
         state = np.zeros([Ni,Nj])
@@ -121,6 +123,7 @@ def computeFEEndstates(mbar, basis, basisManipulator, filename=None):
     hStandard, hCross = basisManipulator.computeSwitches(state, flat=True)
     u_ln[-1,:] = unaffected + np.sum(standardBasis*hStandard, axis=-1) + np.sum(crossBasis*hCross, axis=-1)
     #Compute MBAR
+    if verbose: print('Computing free energy at end states...')
     Deltaf_ij, dDeltaf_ij = mbar.computePerturbedFreeEnergies(u_ln)
     #pdb.set_trace()
     #Sort free energies, indicies now match the R-group "j" you want to specify is coupled at site "i"
@@ -134,13 +137,20 @@ def computeFEEndstates(mbar, basis, basisManipulator, filename=None):
         savez(filename, DF=DF, dDF=dDF)
     return DF, dDF
 
-def constructConsts(filenames, verbose=False):
+def constructConsts(filenames, verbose=False, subsample=False, g=6.55515486995, savef_k=True):
     ncfiles = []
     energies = []
     iterations = []
     for filename in filenames:
         ncfile, energy = readSimulation(filename)
-        iterations.append(ncfile.variables['positions'].shape[0])
+        iterationCount = ncfile.variables['positions'].shape[0]
+        if subsample:
+            #Subsampling based on mean correlation time of the manually drawn data
+            sub = timeseries.subsampleCorrelatedData(np.zeros(iterationCount), g=g)
+            for key in energy.keys():
+                energy[key] = energy[key][sub]
+            iterationCount = len(sub)
+        iterations.append(iterationCount)
         ncfiles.append(ncfile)
         energies.append(energy)
     #Ger some basic shape information
@@ -251,6 +261,8 @@ def constructConsts(filenames, verbose=False):
     #            n += 1
     #        else: pass
 
+    for ncfile in ncfiles:
+        ncfile.close()
     totalN = n #should also be N_k.sum()
     totalK = kAssign
     #Trim up
@@ -317,13 +329,20 @@ def constructConsts(filenames, verbose=False):
     except:
         pass
     mbar = MBAR(u_kn, N_k, initial_f_k=f_ki, verbose=verbose, subsampling_protocol=subsampling_protocol, subsampling=1)
-    #Save the f_k
-    f_kout = {}
-    for state in stateMap.keys():
-        k = stateMap[state]
-        f_kout[state] = mbar.f_k[k]
-    with open('f_kMap.pickle', 'w') as fk:
-        pickle.dump(f_kout, fk)
+    if verbose:
+        overlap_scalar, eigenval, O = mbar.computeOverlap()
+        print("Top 5 Eigenvalues of overlap: "),
+        for i in xrange(5):
+            print('{0:f}, '.format(eigenval[i])),
+        print('')
+    if savef_k:
+        #Save the f_k
+        f_kout = {}
+        for state in stateMap.keys():
+            k = stateMap[state]
+            f_kout[state] = mbar.f_k[k]
+        with open('f_kMap.pickle', 'w') as fk:
+            pickle.dump(f_kout, fk)
     basisOut = {'unaffected':unaffected, 'standardBasis':standardBasis, 'crossBasis':crossBasis}
     return mbar, basisOut, basisManipulator
 

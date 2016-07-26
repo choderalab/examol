@@ -1,0 +1,158 @@
+<!--
+     Based on the Amber10.xml (ff10)
+     CA (name="20") is the pure aromatic benzene (core carbons)
+     nitrogenH class1 is the Hydogen bound to the nitrogen
+     CT class4 aliphatic C
+     HC class5 H bound to aliphatic C, no electron withdrawl
+     H1 class3 H bound to aliphatic C, 1 electron withdrawl
+     HA class280 H bound to aromatic C, no electron withdrawl
+     HO class36 Hydrogen of hydroxyl
+     OH class35 Oxygen of hydroxyl
+     N2 class18 amino group
+     N* class1054 SP2 Nitrogen (nitro)
+     O2 class58/59 SP2 oxygen found in carboxyl and phosphate groups, using it as nitro as well
+     NZ Nitrile (C-=N)
+     CZ sp hybridized (nitrile)
+     Br type1969 Bromine
+     Cl type1970 Chlorine
+     F type 1972 Fluorine
+
+
+c  12.01         0.616               Sp2 C carbonyl group
+c1 12.01         0.360               Sp C
+c2 12.01         0.360               Sp2 C
+c3 12.01         0.878               Sp3 C
+ca 12.01         0.360               Sp2 C in pure aromatic systems
+cp 12.01         0.360               Head Sp2 C that connect two rings in
+biphenyl sys.
+cq 12.01         0.360               Head Sp2 C that connect two rings in
+biphenyl sys. identical to cp
+cc 12.01         0.360               Sp2 carbons in non-pure aromatic systems
+cd 12.01         0.360               Sp2 carbons in non-pure aromatic systems,
+identical to cc
+ce 12.01         0.360               Inner Sp2 carbons in conjugated systems
+cf 12.01         0.360               Inner Sp2 carbons in conjugated systems,
+identical to ce
+cg 12.01         0.360               Inner Sp carbons in conjugated systems
+ch 12.01         0.360               Inner Sp carbons in conjugated systems,
+identical to cg
+cx 12.01         0.360               Sp3 carbons in triangle systems
+cy 12.01         0.360               Sp3 carbons in square systems
+cu 12.01         0.360               Sp2 carbons in triangle systems
+cv 12.01         0.360               Sp2 carbons in square systems
+cz 12.01         0.360               Sp2 carbon in guanidine group
+h1 1.008         0.135               H bonded to aliphatic carbon with 1
+electrwd. group
+h2 1.008         0.135               H bonded to aliphatic carbon with 2
+electrwd. group
+h3 1.008         0.135               H bonded to aliphatic carbon with 3
+electrwd. group
+h4 1.008         0.135               H bonded to non-sp3 carbon with 1
+electrwd. group
+h5 1.008         0.135               H bonded to non-sp3 carbon with 2
+electrwd. group
+ha 1.008         0.135               H bonded to aromatic carbon
+hc 1.008         0.135               H bonded to aliphatic carbon without
+electrwd. group
+hn 1.008         0.161               H bonded to nitrogen atoms
+ho 1.008         0.135               Hydroxyl group
+hp 1.008         0.135               H bonded to phosphate
+hs 1.008         0.135               Hydrogen bonded to sulphur
+hw 1.008         0.135               Hydrogen in water
+hx 1.008         0.135               H bonded to C next to positively charged
+group
+f  19.00         0.320               Fluorine
+cl 35.45         1.910               Chlorine
+br 79.90         2.880               Bromine
+i  126.9         4.690               Iodine
+n  14.01         0.530               Sp2 nitrogen in amide groups
+n1 14.01         0.530               Sp N
+n2 14.01         0.530               aliphatic Sp2 N with two connected atoms
+n3 14.01         0.530               Sp3 N with three connected atoms
+n4 14.01         0.530               Sp3 N with four connected atoms
+na 14.01         0.530               Sp2 N with three connected atoms
+nb 14.01         0.530               Sp2 N in pure aromatic systems
+nc 14.01         0.530               Sp2 N in non-pure aromatic systems
+nd 14.01         0.530               Sp2 N in non-pure aromatic systems,
+identical to nc
+ne 14.01         0.530               Inner Sp2 N in conjugated systems
+nf 14.01         0.530               Inner Sp2 N in conjugated systems,
+identical to ne
+nh 14.01         0.530               Amine N connected one or more aromatic
+rings
+no 14.01         0.530               Nitro N
+o  16.00         0.434               Oxygen with one connected atom
+oh 16.00         0.465               Oxygen in hydroxyl group
+os 16.00         0.465               Ether and ester oxygen
+ow 16.00         0.465               Oxygen in water
+p2 30.97         1.538               Phosphate with two connected atoms
+p3 30.97         1.538               Phosphate with three connected atoms,
+such as PH3
+p4 30.97         1.538               Phosphate with three connected atoms,
+such as O=P(CH3)2
+p5 30.97         1.538               Phosphate with four connected atoms, such
+as O=P(OH)3
+pb 30.97         1.538               Sp2 P in pure aromatic systems
+pc 30.97         1.538               Sp2 P in non-pure aromatic systems
+pd 30.97         1.538               Sp2 P in non-pure aromatic systems,
+identical to pc
+pe 30.97         1.538               Inner Sp2 P in conjugated systems
+pf 30.97         1.538               Inner Sp2 P in conjugated systems,
+identical to pe
+px 30.97         1.538               Special p4 in conjugated systems
+py 30.97         1.538               Special p5 in conjugated systems
+s  32.06         2.900               S with one connected atom
+s2 32.06         2.900               S with two connected atom, involved at
+least one double bond
+s4 32.06         2.900               S with three connected atoms
+s6 32.06         2.900               S with four connected atoms
+sh 32.06         2.900               Sp3 S connected with hydrogen
+ss 32.06         2.900               Sp3 S in thio-ester and thio-ether
+sx 32.06         2.900               Special s4 in conjugated systems
+sy 32.06         2.900               Special s6 in conjugated systems
+
+
+#NOTES ON TYPE NAMES
+basecarbon    : no residue core carbon with attached hydrogen
+basecarbonsite: no residue core carbon where R-groups will attach,
+                q=basecarbon+coreH
+coreH         : Hydrogen of core, no R-groups
+coreC#1R#2    : Core carbon at site #1 away (0 is attached) and #2 R-group.
+                Note. site +-2 has combined hydrogen
+coreH#1R#2    : Core Hydrogen at site #1 away (0 is attached, so does not
+                exist)) and #2 R-group. note: site +-2 does not exist, charge
+                is combined with carbon
+hydroxylH     : Hydrogen for the hydroxyl R-group
+hydroxylO     : Oxygen for the hydroxyl R-group
+MeC           : Carbon for the methyl R-group
+MeH1          : Hydrogens on the methyl R-group. H1 type since C is attached
+                to e- withdrawing group
+MeEtC1        : Methyl (1st) carbon (core - MeC - EtC) of the ethyl R-group, 2
+                attached hydrogens
+MeEtC2        : Ethyl (2nd) carbon (core - MeC - EtC) of the ethyl R-group, 3
+                attached hydrogens
+MeEtH1        : Hydrogens on the first carbon (MeEtC1) of the Ethyl R-group.
+                H1 since its attached to an e- withdrawing group
+MeEtHC        : Hydrogens on the second carbon (MeEtC2) of the Ethyl R-group.
+                Standard aliphatic hydrogen
+aminoN        : Nitrogen of amino R-group
+nitrogenN     : Hydrogens of the amino R-group
+bromine       : Bromine R-group
+fluorine      : Fluorine R-group
+phenylC2      : Biphenyl is 2 benzene rings connected at effectivley C0.
+                However, the Core has other attachment points which still uses 
+                q= q(C2) + q(H2), where as THIS carbon (phenylC2) still has a 
+                hydrogen, so it needs its own charge.
+phenylH2      : Hydrogen on C+-2 from attached point of phenyl group, see
+                phenylC2 explination above
+nitroN        : Nitrogen of nitro- R-group
+nitroO        : Oxygen of nitro- R-group
+etherO        : Ether oyxgen on Phenyl Allyl Ether (PAE)
+PAEC1         : First carbon in PAE R group. (core-O-PAEC1-PAEC2=PAEC3).
+                Alkane
+PAEC2         : Second carbon in PAE R-group. Alkene
+PAEC3         : Third (and terminal) carbon in PAE R-group. Alkene
+PAEC1H        : Hydrogens on first PAE carbon
+PAEC2H        : Hydrogen on second PAE carbon
+PAEC3H        : Hydrogens on thrid PAE carbon
+--!>

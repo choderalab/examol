@@ -1,0 +1,782 @@
+<ForceField>
+ <Residues>
+  <Residue name="RJ1">
+   <Atom name="H1" type="coreH"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="RJ2">
+   <Atom name="OH1" type="hydroxylO"/>
+   <Atom name="HO1" type="hydroxylH"/>
+   <Bond from="0" to="1"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="RJ3">
+   <Atom name="C31" type="MeC"/>
+   <Atom name="H11" type="MeH1"/>
+   <Atom name="H12" type="MeH1"/>
+   <Atom name="H13" type="MeH1"/>
+   <Bond from="0" to="1"/>
+   <Bond from="0" to="2"/>
+   <Bond from="0" to="3"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="RJ4">
+   <Atom name="C31" type="MeEtC1"/>
+   <Atom name="C32" type="MeEtC2"/>
+   <Atom name="H11" type="MeEtH1"/>
+   <Atom name="H12" type="MeEtH1"/>
+   <Atom name="HC1" type="MeEtHC"/>
+   <Atom name="HC2" type="MeEtHC"/>
+   <Atom name="HC3" type="MeEtHC"/>
+   <Bond from="0" to="1"/>
+   <Bond from="0" to="2"/>
+   <Bond from="0" to="3"/>
+   <Bond from="1" to="4"/>
+   <Bond from="1" to="5"/>
+   <Bond from="1" to="6"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="RJ5">
+   <Atom name="N21" type="aminoN"/>
+   <Atom name="H1" type="nitrogenH"/>
+   <Atom name="H2" type="nitrogenH"/>
+   <Bond from="0" to="1"/>
+   <Bond from="0" to="2"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="RJ6">
+   <Atom name="Br1" type="bromine"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="RJ7">
+   <Atom name="F1" type="fluorine"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="RJ8">
+   <Atom name="CA1" type="coreC0R8"/>
+   <Atom name="CA2" type="coreC1R8"/>
+   <Atom name="CA3" type="phenylC2"/>
+   <Atom name="CA4" type="coreC3R8"/>
+   <Atom name="CA5" type="phenylC2"/>
+   <Atom name="CA6" type="coreC1R8"/>
+   <Atom name="H1" type="coreH1R8"/>
+   <Atom name="H2" type="phenylH2"/>
+   <Atom name="H3" type="coreH3R8"/>
+   <Atom name="H4" type="phenylH2"/>
+   <Atom name="H5" type="coreH1R8"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="2"/>
+   <Bond from="8" to="3"/>
+   <Bond from="9" to="4"/>
+   <Bond from="10" to="5"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="RJ9">
+   <Atom name="NO1" type="nitroN"/>
+   <Atom name="O1" type="nitroO"/>
+   <Atom name="O2" type="nitroO"/>
+   <Bond from="0" to="1"/>
+   <Bond from="0" to="2"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="RJ10">
+   <Atom name="OS1" type="etherO"/>
+   <Atom name="C31" type="PAEC1"/>
+   <Atom name="C21" type="PAEC2"/>
+   <Atom name="C22" type="PAEC3"/>
+   <Atom name="HC1" type="PAEC1H"/>
+   <Atom name="HC2" type="PAEC1H"/>
+   <Atom name="HC3" type="PAEC2H"/>
+   <Atom name="HC4" type="PAEC3H"/>
+   <Atom name="HC5" type="PAEC3H"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="1" to="4"/>
+   <Bond from="1" to="5"/>
+   <Bond from="2" to="6"/>
+   <Bond from="3" to="7"/>
+   <Bond from="3" to="8"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="COR">
+   <Atom name="CA1" type="basecarbonsite"/>
+   <Atom name="CA2" type="basecarbon"/>
+   <Atom name="CA3" type="basecarbonsite"/>
+   <Atom name="CA4" type="basecarbon"/>
+   <Atom name="CA5" type="basecarbonsite"/>
+   <Atom name="CA6" type="basecarbon"/>
+   <Atom name="H1" type="coreH"/>
+   <Atom name="H2" type="coreH"/>
+   <Atom name="H3" type="coreH"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+  </Residue>
+  <Residue name="C1R1">
+   <Atom name="CA1" type="basecarbon"/>
+   <Atom name="CA2" type="basecarbon"/>
+   <Atom name="CA3" type="basecarbonsite"/>
+   <Atom name="CA4" type="basecarbon"/>
+   <Atom name="CA5" type="basecarbonsite"/>
+   <Atom name="CA6" type="basecarbon"/>
+   <Atom name="H1" type="coreH"/>
+   <Atom name="H2" type="coreH"/>
+   <Atom name="H3" type="coreH"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="C1R2">
+   <Atom name="CA1" type="coreC0R2"/>
+   <Atom name="CA2" type="coreC1R2"/>
+   <Atom name="CA3" type="coreC2R2"/>
+   <Atom name="CA4" type="coreC3R2"/>
+   <Atom name="CA5" type="coreC2R2"/>
+   <Atom name="CA6" type="coreC1R2"/>
+   <Atom name="H1" type="coreH1R2"/>
+   <Atom name="H2" type="coreH3R2"/>
+   <Atom name="H3" type="coreH1R2"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="C1R3">
+   <Atom name="CA1" type="coreC0R3"/>
+   <Atom name="CA2" type="coreC1R3"/>
+   <Atom name="CA3" type="coreC2R3"/>
+   <Atom name="CA4" type="coreC3R3"/>
+   <Atom name="CA5" type="coreC2R3"/>
+   <Atom name="CA6" type="coreC1R3"/>
+   <Atom name="H1" type="coreH1R3"/>
+   <Atom name="H2" type="coreH3R3"/>
+   <Atom name="H3" type="coreH1R3"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="C1R4">
+   <Atom name="CA1" type="coreC0R4"/>
+   <Atom name="CA2" type="coreC1R4"/>
+   <Atom name="CA3" type="coreC2R4"/>
+   <Atom name="CA4" type="coreC3R4"/>
+   <Atom name="CA5" type="coreC2R4"/>
+   <Atom name="CA6" type="coreC1R4"/>
+   <Atom name="H1" type="coreH1R4"/>
+   <Atom name="H2" type="coreH3R4"/>
+   <Atom name="H3" type="coreH1R4"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="C1R5">
+   <Atom name="CA1" type="coreC0R5"/>
+   <Atom name="CA2" type="coreC1R5"/>
+   <Atom name="CA3" type="coreC2R5"/>
+   <Atom name="CA4" type="coreC3R5"/>
+   <Atom name="CA5" type="coreC2R5"/>
+   <Atom name="CA6" type="coreC1R5"/>
+   <Atom name="H1" type="coreH1R5"/>
+   <Atom name="H2" type="coreH3R5"/>
+   <Atom name="H3" type="coreH1R5"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="C1R6">
+   <Atom name="CA1" type="coreC0R6"/>
+   <Atom name="CA2" type="coreC1R6"/>
+   <Atom name="CA3" type="coreC2R6"/>
+   <Atom name="CA4" type="coreC3R6"/>
+   <Atom name="CA5" type="coreC2R6"/>
+   <Atom name="CA6" type="coreC1R6"/>
+   <Atom name="H1" type="coreH1R6"/>
+   <Atom name="H2" type="coreH3R6"/>
+   <Atom name="H3" type="coreH1R6"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="C1R7">
+   <Atom name="CA1" type="coreC0R7"/>
+   <Atom name="CA2" type="coreC1R7"/>
+   <Atom name="CA3" type="coreC2R7"/>
+   <Atom name="CA4" type="coreC3R7"/>
+   <Atom name="CA5" type="coreC2R7"/>
+   <Atom name="CA6" type="coreC1R7"/>
+   <Atom name="H1" type="coreH1R7"/>
+   <Atom name="H2" type="coreH3R7"/>
+   <Atom name="H3" type="coreH1R7"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="C1R8">
+   <Atom name="CA1" type="coreC0R8"/>
+   <Atom name="CA2" type="coreC1R8"/>
+   <Atom name="CA3" type="coreC2R8"/>
+   <Atom name="CA4" type="coreC3R8"/>
+   <Atom name="CA5" type="coreC2R8"/>
+   <Atom name="CA6" type="coreC1R8"/>
+   <Atom name="H1" type="coreH1R8"/>
+   <Atom name="H2" type="coreH3R8"/>
+   <Atom name="H3" type="coreH1R8"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="C1R9">
+   <Atom name="CA1" type="coreC0R9"/>
+   <Atom name="CA2" type="coreC1R9"/>
+   <Atom name="CA3" type="coreC2R9"/>
+   <Atom name="CA4" type="coreC3R9"/>
+   <Atom name="CA5" type="coreC2R9"/>
+   <Atom name="CA6" type="coreC1R9"/>
+   <Atom name="H1" type="coreH1R9"/>
+   <Atom name="H2" type="coreH3R9"/>
+   <Atom name="H3" type="coreH1R9"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="C1R10">
+   <Atom name="CA1" type="coreC0R10"/>
+   <Atom name="CA2" type="coreC1R10"/>
+   <Atom name="CA3" type="coreC2R10"/>
+   <Atom name="CA4" type="coreC3R10"/>
+   <Atom name="CA5" type="coreC2R10"/>
+   <Atom name="CA6" type="coreC1R10"/>
+   <Atom name="H1" type="coreH1R10"/>
+   <Atom name="H2" type="coreH3R10"/>
+   <Atom name="H3" type="coreH1R10"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="0"/>
+  </Residue>
+  <Residue name="C2R1">
+   <Atom name="CA1" type="basecarbonsite"/>
+   <Atom name="CA2" type="basecarbon"/>
+   <Atom name="CA3" type="basecarbon"/>
+   <Atom name="CA4" type="basecarbon"/>
+   <Atom name="CA5" type="basecarbonsite"/>
+   <Atom name="CA6" type="basecarbon"/>
+   <Atom name="H1" type="coreH"/>
+   <Atom name="H2" type="coreH"/>
+   <Atom name="H3" type="coreH"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="2"/>
+  </Residue>
+  <Residue name="C2R2">
+   <Atom name="CA1" type="coreC2R2"/>
+   <Atom name="CA2" type="coreC1R2"/>
+   <Atom name="CA3" type="coreC0R2"/>
+   <Atom name="CA4" type="coreC1R2"/>
+   <Atom name="CA5" type="coreC2R2"/>
+   <Atom name="CA6" type="coreC3R2"/>
+   <Atom name="H1" type="coreH1R2"/>
+   <Atom name="H2" type="coreH1R2"/>
+   <Atom name="H3" type="coreH3R2"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="2"/>
+  </Residue>
+  <Residue name="C2R3">
+   <Atom name="CA1" type="coreC2R3"/>
+   <Atom name="CA2" type="coreC1R3"/>
+   <Atom name="CA3" type="coreC0R3"/>
+   <Atom name="CA4" type="coreC1R3"/>
+   <Atom name="CA5" type="coreC2R3"/>
+   <Atom name="CA6" type="coreC3R3"/>
+   <Atom name="H1" type="coreH1R3"/>
+   <Atom name="H2" type="coreH1R3"/>
+   <Atom name="H3" type="coreH3R3"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="2"/>
+  </Residue>
+  <Residue name="C2R4">
+   <Atom name="CA1" type="coreC2R4"/>
+   <Atom name="CA2" type="coreC1R4"/>
+   <Atom name="CA3" type="coreC0R4"/>
+   <Atom name="CA4" type="coreC1R4"/>
+   <Atom name="CA5" type="coreC2R4"/>
+   <Atom name="CA6" type="coreC3R4"/>
+   <Atom name="H1" type="coreH1R4"/>
+   <Atom name="H2" type="coreH1R4"/>
+   <Atom name="H3" type="coreH3R4"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="2"/>
+  </Residue>
+  <Residue name="C2R5">
+   <Atom name="CA1" type="coreC2R5"/>
+   <Atom name="CA2" type="coreC1R5"/>
+   <Atom name="CA3" type="coreC0R5"/>
+   <Atom name="CA4" type="coreC1R5"/>
+   <Atom name="CA5" type="coreC2R5"/>
+   <Atom name="CA6" type="coreC3R5"/>
+   <Atom name="H1" type="coreH1R5"/>
+   <Atom name="H2" type="coreH1R5"/>
+   <Atom name="H3" type="coreH3R5"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="2"/>
+  </Residue>
+  <Residue name="C2R6">
+   <Atom name="CA1" type="coreC2R6"/>
+   <Atom name="CA2" type="coreC1R6"/>
+   <Atom name="CA3" type="coreC0R6"/>
+   <Atom name="CA4" type="coreC1R6"/>
+   <Atom name="CA5" type="coreC2R6"/>
+   <Atom name="CA6" type="coreC3R6"/>
+   <Atom name="H1" type="coreH1R6"/>
+   <Atom name="H2" type="coreH1R6"/>
+   <Atom name="H3" type="coreH3R6"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="2"/>
+  </Residue>
+  <Residue name="C2R7">
+   <Atom name="CA1" type="coreC2R7"/>
+   <Atom name="CA2" type="coreC1R7"/>
+   <Atom name="CA3" type="coreC0R7"/>
+   <Atom name="CA4" type="coreC1R7"/>
+   <Atom name="CA5" type="coreC2R7"/>
+   <Atom name="CA6" type="coreC3R7"/>
+   <Atom name="H1" type="coreH1R7"/>
+   <Atom name="H2" type="coreH1R7"/>
+   <Atom name="H3" type="coreH3R7"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="2"/>
+  </Residue>
+  <Residue name="C2R8">
+   <Atom name="CA1" type="coreC2R8"/>
+   <Atom name="CA2" type="coreC1R8"/>
+   <Atom name="CA3" type="coreC0R8"/>
+   <Atom name="CA4" type="coreC1R8"/>
+   <Atom name="CA5" type="coreC2R8"/>
+   <Atom name="CA6" type="coreC3R8"/>
+   <Atom name="H1" type="coreH1R8"/>
+   <Atom name="H2" type="coreH1R8"/>
+   <Atom name="H3" type="coreH3R8"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="2"/>
+  </Residue>
+  <Residue name="C2R9">
+   <Atom name="CA1" type="coreC2R9"/>
+   <Atom name="CA2" type="coreC1R9"/>
+   <Atom name="CA3" type="coreC0R9"/>
+   <Atom name="CA4" type="coreC1R9"/>
+   <Atom name="CA5" type="coreC2R9"/>
+   <Atom name="CA6" type="coreC3R9"/>
+   <Atom name="H1" type="coreH1R9"/>
+   <Atom name="H2" type="coreH1R9"/>
+   <Atom name="H3" type="coreH3R9"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="2"/>
+  </Residue>
+  <Residue name="C2R10">
+   <Atom name="CA1" type="coreC2R10"/>
+   <Atom name="CA2" type="coreC1R10"/>
+   <Atom name="CA3" type="coreC0R10"/>
+   <Atom name="CA4" type="coreC1R10"/>
+   <Atom name="CA5" type="coreC2R10"/>
+   <Atom name="CA6" type="coreC3R10"/>
+   <Atom name="H1" type="coreH1R10"/>
+   <Atom name="H2" type="coreH1R10"/>
+   <Atom name="H3" type="coreH3R10"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="2"/>
+  </Residue>
+  <Residue name="C3R1">
+   <Atom name="CA1" type="basecarbonsite"/>
+   <Atom name="CA2" type="basecarbon"/>
+   <Atom name="CA3" type="basecarbonsite"/>
+   <Atom name="CA4" type="basecarbon"/>
+   <Atom name="CA5" type="basecarbon"/>
+   <Atom name="CA6" type="basecarbon"/>
+   <Atom name="H1" type="coreH"/>
+   <Atom name="H2" type="coreH"/>
+   <Atom name="H3" type="coreH"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="4"/>
+  </Residue>
+  <Residue name="C3R2">
+   <Atom name="CA1" type="coreC2R2"/>
+   <Atom name="CA2" type="coreC3R2"/>
+   <Atom name="CA3" type="coreC2R2"/>
+   <Atom name="CA4" type="coreC1R2"/>
+   <Atom name="CA5" type="coreC0R2"/>
+   <Atom name="CA6" type="coreC1R2"/>
+   <Atom name="H1" type="coreH3R2"/>
+   <Atom name="H2" type="coreH1R2"/>
+   <Atom name="H3" type="coreH1R2"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="4"/>
+  </Residue>
+  <Residue name="C3R3">
+   <Atom name="CA1" type="coreC2R3"/>
+   <Atom name="CA2" type="coreC3R3"/>
+   <Atom name="CA3" type="coreC2R3"/>
+   <Atom name="CA4" type="coreC1R3"/>
+   <Atom name="CA5" type="coreC0R3"/>
+   <Atom name="CA6" type="coreC1R3"/>
+   <Atom name="H1" type="coreH3R3"/>
+   <Atom name="H2" type="coreH1R3"/>
+   <Atom name="H3" type="coreH1R3"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="4"/>
+  </Residue>
+  <Residue name="C3R4">
+   <Atom name="CA1" type="coreC2R4"/>
+   <Atom name="CA2" type="coreC3R4"/>
+   <Atom name="CA3" type="coreC2R4"/>
+   <Atom name="CA4" type="coreC1R4"/>
+   <Atom name="CA5" type="coreC0R4"/>
+   <Atom name="CA6" type="coreC1R4"/>
+   <Atom name="H1" type="coreH3R4"/>
+   <Atom name="H2" type="coreH1R4"/>
+   <Atom name="H3" type="coreH1R4"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="4"/>
+  </Residue>
+  <Residue name="C3R5">
+   <Atom name="CA1" type="coreC2R5"/>
+   <Atom name="CA2" type="coreC3R5"/>
+   <Atom name="CA3" type="coreC2R5"/>
+   <Atom name="CA4" type="coreC1R5"/>
+   <Atom name="CA5" type="coreC0R5"/>
+   <Atom name="CA6" type="coreC1R5"/>
+   <Atom name="H1" type="coreH3R5"/>
+   <Atom name="H2" type="coreH1R5"/>
+   <Atom name="H3" type="coreH1R5"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="4"/>
+  </Residue>
+  <Residue name="C3R6">
+   <Atom name="CA1" type="coreC2R6"/>
+   <Atom name="CA2" type="coreC3R6"/>
+   <Atom name="CA3" type="coreC2R6"/>
+   <Atom name="CA4" type="coreC1R6"/>
+   <Atom name="CA5" type="coreC0R6"/>
+   <Atom name="CA6" type="coreC1R6"/>
+   <Atom name="H1" type="coreH3R6"/>
+   <Atom name="H2" type="coreH1R6"/>
+   <Atom name="H3" type="coreH1R6"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="4"/>
+  </Residue>
+  <Residue name="C3R7">
+   <Atom name="CA1" type="coreC2R7"/>
+   <Atom name="CA2" type="coreC3R7"/>
+   <Atom name="CA3" type="coreC2R7"/>
+   <Atom name="CA4" type="coreC1R7"/>
+   <Atom name="CA5" type="coreC0R7"/>
+   <Atom name="CA6" type="coreC1R7"/>
+   <Atom name="H1" type="coreH3R7"/>
+   <Atom name="H2" type="coreH1R7"/>
+   <Atom name="H3" type="coreH1R7"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="4"/>
+  </Residue>
+  <Residue name="C3R8">
+   <Atom name="CA1" type="coreC2R8"/>
+   <Atom name="CA2" type="coreC3R8"/>
+   <Atom name="CA3" type="coreC2R8"/>
+   <Atom name="CA4" type="coreC1R8"/>
+   <Atom name="CA5" type="coreC0R8"/>
+   <Atom name="CA6" type="coreC1R8"/>
+   <Atom name="H1" type="coreH3R8"/>
+   <Atom name="H2" type="coreH1R8"/>
+   <Atom name="H3" type="coreH1R8"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="4"/>
+  </Residue>
+  <Residue name="C3R9">
+   <Atom name="CA1" type="coreC2R9"/>
+   <Atom name="CA2" type="coreC3R9"/>
+   <Atom name="CA3" type="coreC2R9"/>
+   <Atom name="CA4" type="coreC1R9"/>
+   <Atom name="CA5" type="coreC0R9"/>
+   <Atom name="CA6" type="coreC1R9"/>
+   <Atom name="H1" type="coreH3R9"/>
+   <Atom name="H2" type="coreH1R9"/>
+   <Atom name="H3" type="coreH1R9"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="4"/>
+  </Residue>
+  <Residue name="C3R10">
+   <Atom name="CA1" type="coreC2R10"/>
+   <Atom name="CA2" type="coreC3R10"/>
+   <Atom name="CA3" type="coreC2R10"/>
+   <Atom name="CA4" type="coreC1R10"/>
+   <Atom name="CA5" type="coreC0R10"/>
+   <Atom name="CA6" type="coreC1R10"/>
+   <Atom name="H1" type="coreH3R10"/>
+   <Atom name="H2" type="coreH1R10"/>
+   <Atom name="H3" type="coreH1R10"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <ExternalBond from="4"/>
+  </Residue>
+  <Residue name='COC'>
+   <Atom name="CA1" type="basecarbonsite"/>
+   <Atom name="CA2" type="basecarbon"/>
+   <Atom name="CA3" type="basecarbonsite"/>
+   <Atom name="CA4" type="basecarbon"/>
+   <Atom name="CA5" type="basecarbonsite"/>
+   <Atom name="CA6" type="basecarbon"/>
+   <Atom name="H1" type="coreH"/>
+   <Atom name="H2" type="coreH"/>
+   <Atom name="H3" type="coreH"/>
+   <Bond from="0" to="1"/>
+   <Bond from="1" to="2"/>
+   <Bond from="2" to="3"/>
+   <Bond from="3" to="4"/>
+   <Bond from="4" to="5"/>
+   <Bond from="5" to="0"/>
+   <Bond from="6" to="1"/>
+   <Bond from="7" to="3"/>
+   <Bond from="8" to="5"/>
+   <Atom name="H1C1R1" type="coreH"/>
+   <Atom name="H1C2R1" type="coreH"/>
+   <Atom name="H1C3R1" type="coreH"/>
+  </Residue>
+ </Residues>
+</ForceField>
